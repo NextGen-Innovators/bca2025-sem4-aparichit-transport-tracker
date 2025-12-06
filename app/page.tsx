@@ -1,7 +1,10 @@
+"use client"
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BusFront, Users, MapPin, Clock, Navigation, Smartphone, ArrowRight, Zap, Shield, Star } from 'lucide-react';
+import { ToastContainer, toast } from 'react-toastify';
 
 export default function Home() {
   return (
@@ -45,7 +48,7 @@ export default function Home() {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-5 justify-center items-center mb-20">
-            <Link href="/auth?role=passenger">
+            <Link href="/auth?role=passenger" onClick={() => toast("Sign In as Passenger")}>
               <Button
                 size="lg"
                 className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 border-0 transition-all duration-300 hover:scale-105"
@@ -55,7 +58,7 @@ export default function Home() {
                 <ArrowRight className="w-5 h-5 ml-3 group-hover:translate-x-1 transition-transform" />
               </Button>
             </Link>
-            <Link href="/auth?role=driver">
+            <Link href="/auth?role=driver" onClick={() => toast("Sign In as Driver")}>
               <Button
                 size="lg"
                 variant="outline"
@@ -308,7 +311,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
-            <Link href="/auth?role=passenger">
+            <Link href="/auth?role=passenger" onClick={() => toast("Sign In as Passenger")}>
               <Button
                 size="lg"
                 className="group w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
@@ -318,7 +321,7 @@ export default function Home() {
                 <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-2 transition-transform" />
               </Button>
             </Link>
-            <Link href="/auth?role=driver">
+            <Link href="/auth?role=driver" onClick={() => toast("Sign In as Driver")}>
               <Button
                 size="lg"
                 variant="outline"
@@ -355,6 +358,18 @@ export default function Home() {
           </div>
         </div>
       </div>
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick={false}
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
+      />
     </div>
   );
 }
