@@ -13,23 +13,25 @@ import {
   MapPin,
   Ticket,
   Navigation,
-  User,
+  Clock,
   Smartphone,
-  Clock
+  Users
 } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import MapWrapper from '@/components/map/MapWrapper';
 import { subscribeToBuses, subscribeToBookings, updateBusLocation } from '@/lib/firebaseDb';
 import { canAccommodateBooking } from '@/lib/seatManagement';
-import { toast } from 'sonner';
+import { useToast } from '@/components/ui/use-toast';
 import { checkProximity, haversineDistance, ProximityLevel } from '@/lib/utils/geofencing';
 import { toast as sonnerToast } from 'sonner';
 import { NotificationToast } from '@/components/shared/NotificationToast';
+import DetailedBookingModal from '@/components/passenger/DetailedBookingModal';
 
 export default function PassengerDashboard() {
   const router = useRouter();
   const { currentUser, role, loading, signOut } = useAuth();
+  const { toast } = useToast();
   const [buses, setBuses] = useState<Bus[]>([]);
   const [selectedBus, setSelectedBus] = useState<Bus | null>(null);
   const [pickupLocation, setPickupLocation] = useState<{ lat: number; lng: number; address?: string } | null>(null);
@@ -53,6 +55,56 @@ export default function PassengerDashboard() {
   });
   const [hasRequestedNotificationPermission, setHasRequestedNotificationPermission] =
     useState(false);
+
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Get user's current location
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+
+        // Auto-set pickup to current location if not set
+        setPickupLocation(prev => prev ? prev : {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          address: 'Current Location'
+        });
+      },
+      (error) => {
+        console.warn('Geolocation error:', error);
+        let errorMessage = "Unknown error acquiring position";
+        switch (error.code) {
+          case 1: errorMessage = "Location permission denied. Please enable it in settings."; break;
+          case 2: errorMessage = "Location unavailable. Check your GPS or network."; break;
+          case 3: errorMessage = "Location request timed out."; break;
+        }
+
+        // Only show toast once per session or if critical
+        if (!userLocation) {
+          toast({
+            title: "Location Error",
+            description: errorMessage + " Using default location.",
+            variant: "destructive"
+          });
+          // Fallback to Kathmandu (or a safe default) so map works
+          setUserLocation({ lat: 27.7172, lng: 85.3240 });
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 10000
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   // Subscribe to real-time bus updates
   useEffect(() => {
@@ -248,8 +300,10 @@ export default function PassengerDashboard() {
 
   const handleBookBus = async (bus: Bus, bookingData?: any) => {
     if (!pickupLocation || !dropoffLocation) {
-      toast('Select locations first', {
+      toast({
+        title: 'Select locations first',
         description: 'Please select pickup and dropoff locations on the map.',
+        variant: 'destructive',
       });
       return;
     }
@@ -257,8 +311,10 @@ export default function PassengerDashboard() {
     // Check if bus can accommodate the booking
     const numberOfPassengers = bookingData?.numberOfPassengers || 1;
     if (!canAccommodateBooking(bus, numberOfPassengers)) {
-      toast('Not enough seats available', {
+      toast({
+        title: 'Not enough seats available',
         description: `This bus only has ${bus.availableSeats} seats available. You requested ${numberOfPassengers}.`,
+        variant: 'destructive',
       });
       return;
     }
@@ -322,15 +378,18 @@ export default function PassengerDashboard() {
       setPickupLocation(null);
       setDropoffLocation(null);
 
-      toast('Booking confirmed', {
+      toast({
+        title: 'Booking confirmed',
         description: `You have successfully booked ${bus.busNumber}.`,
       });
     } catch (error) {
       console.error('Booking error:', error);
       const message =
         error instanceof Error ? error.message : 'Failed to create booking. Please try again.';
-      toast('Booking failed', {
+      toast({
+        title: 'Booking failed',
         description: message,
+        variant: 'destructive',
       });
     } finally {
       setBookingLoading(false);
@@ -373,334 +432,187 @@ export default function PassengerDashboard() {
 
   if (loading || !currentUser || (role && role !== 'passenger')) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
-        <p className="text-gray-600 text-sm">Loading passenger dashboard...</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <div className="absolute inset-0 bg-cyan-500/20 rounded-full animate-ping"></div>
+            <div className="relative bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl w-full h-full flex items-center justify-center shadow-2xl shadow-cyan-500/50">
+              <Navigation className="w-10 h-10 text-white animate-pulse" />
+            </div>
+          </div>
+          <p className="text-slate-400 text-lg font-medium">Locating nearby buses...</p>
+        </div>
       </div>
     );
   }
 
+  // --- UI Render ---
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-950 flex flex-col">
+      {/* 1. Header (Sticky Top) */}
+      <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800 p-4">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Brand */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
+              <Navigation className="w-4 h-4 text-white" />
+            </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Passenger Bus Tracker</h1>
-              <p className="text-gray-600">Book buses in real-time and track their routes</p>
-            </div>
-            <div className="flex flex-col items-stretch md:items-end gap-3">
-              <div className="flex items-center gap-4">
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('/api/seed', { method: 'POST' });
-                          const data = await res.json();
-                          alert(data.message || 'Seeded demo data');
-                        } catch (e) {
-                          console.error(e);
-                          alert('Failed to seed demo data');
-                        }
-                      }}
-                    >
-                      Seed Demo Data
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('/api/seed', { method: 'DELETE' });
-                          const data = await res.json();
-                          alert(data.message || 'Cleared demo data');
-                        } catch (e) {
-                          console.error(e);
-                          alert('Failed to clear demo data');
-                        }
-                      }}
-                    >
-                      Clear Demo
-                    </Button>
-                  </div>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={signOut}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  Sign Out
-                </Button>
-              </div>
-
-              {/* Notification settings */}
-              <div className="flex items-center gap-3 text-xs text-gray-600">
-                <span className="font-medium">Notifications:</span>
-                <Button
-                  variant={notificationsEnabled ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-7 px-3"
-                  onClick={() => setNotificationsEnabled((v) => !v)}
-                >
-                  {notificationsEnabled ? 'Enabled' : 'Disabled'}
-                </Button>
-                <Button
-                  variant={vibrationEnabled ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-7 px-3"
-                  onClick={() => setVibrationEnabled((v) => !v)}
-                >
-                  Vibration
-                </Button>
-                {process.env.NODE_ENV === 'development' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-3"
-                    onClick={async () => {
-                      // Simple simulation: move selected bus closer to pickup in 5 steps
-                      if (!selectedBus || !pickupLocation) return;
-                      const steps = 5;
-                      const start = selectedBus.currentLocation;
-                      const end = pickupLocation;
-                      for (let i = 1; i <= steps; i++) {
-                        const factor = i / steps;
-                        const lat = start.lat + (end.lat - start.lat) * factor;
-                        const lng = start.lng + (end.lng - start.lng) * factor;
-                        await updateBusLocation(selectedBus.id, {
-                          lat,
-                          lng,
-                          timestamp: new Date(),
-                        });
-                        await new Promise((resolve) => setTimeout(resolve, 2000));
-                      }
-                    }}
-                  >
-                    Simulate Bus Approach
-                  </Button>
-                )}
-              </div>
-
-              {/* Vehicle type filter */}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant={vehicleFilter === 'all' ? 'default' : 'outline'}
-                  className="h-7 px-3 text-xs"
-                  onClick={() => setVehicleFilter('all')}
-                >
-                  All ({buses.filter(b => b.isActive).length})
-                </Button>
-                {VEHICLE_TYPES.map(type => (
-                  <Button
-                    key={type.id}
-                    size="sm"
-                    variant={vehicleFilter === type.id ? 'default' : 'outline'}
-                    className="h-7 px-3 text-xs flex items-center gap-1"
-                    onClick={() => setVehicleFilter(type.id)}
-                  >
-                    <span>{type.icon}</span>
-                    <span>{type.name}</span>
-                    <span className="opacity-70">
-                      ({buses.filter(b => b.isActive && b.vehicleType === type.id).length})
-                    </span>
-                  </Button>
-                ))}
+              <h1 className="text-sm font-black text-white tracking-tight leading-none">
+                BusTracker
+              </h1>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                <span className="text-[10px] text-slate-300 font-medium">
+                  {buses.filter(b => b.isActive).length} Active
+                </span>
               </div>
             </div>
+          </div>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2">
+            <DetailedBookingModal />
+
+            {/* Sign Out Button */}
+            <Button
+              variant="ghost"
+              onClick={signOut}
+              size="icon"
+              className="w-9 h-9 rounded-full bg-slate-900/50 border border-slate-700/50 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            >
+              <span className="sr-only">Sign Out</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" x2="9" y1="12" y2="12" />
+              </svg>
+            </Button>
           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Panel */}
-          <div className="space-y-6">
-            <BookingPanel
-              pickupLocation={pickupLocation}
-              dropoffLocation={dropoffLocation}
-              selectedBus={selectedBus}
-              onBook={handleBookBus}
-              onReset={handleResetLocations}
-              loading={bookingLoading}
-            />
+        {/* Filters Row */}
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+          <Button
+            size="sm"
+            variant={vehicleFilter === 'all' ? 'default' : 'secondary'}
+            className={`h-7 rounded-full text-xs border ${vehicleFilter === 'all'
+              ? 'bg-slate-800 border-slate-600 text-white'
+              : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800'}`}
+            onClick={() => setVehicleFilter('all')}
+          >
+            All
+          </Button>
+          {VEHICLE_TYPES.map(type => (
+            <Button
+              key={type.id}
+              size="sm"
+              variant={vehicleFilter === type.id ? 'default' : 'secondary'}
+              className={`h-7 rounded-full text-xs border flex items-center gap-1.5 ${vehicleFilter === type.id
+                ? 'bg-slate-800 border-slate-600 text-white'
+                : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800'}`}
+              onClick={() => setVehicleFilter(type.id)}
+            >
+              <span>{type.icon}</span>
+              <span>{type.name}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
 
-            {/* Seat Visualizer */}
-            {selectedBus && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Seat Availability</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <SeatVisualizer bus={selectedBus} />
-                </CardContent>
-              </Card>
-            )}
+      {/* 2. Map Section (Priority View) */}
+      <div className="relative w-full h-[65vh] shrink-0 border-b border-slate-800">
+        <MapWrapper
+          role="passenger"
+          buses={filteredBuses}
+          selectedBus={selectedBus}
+          onBusSelect={setSelectedBus}
+          onLocationSelect={handleLocationSelect}
+          showRoute={!!selectedBus}
+          pickupLocation={pickupLocation}
+          dropoffLocation={dropoffLocation}
+          pickupProximityLevel={pickupProximityLevel}
+          userLocation={userLocation}
+        />
 
-            {/* Bookings */}
-            {bookings.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Ticket className="w-5 h-5" />
-                    Your Bookings
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {bookings.map(booking => {
-                      const bus = buses.find(b => b.id === booking.busId);
-                      const distanceToPickup = bus && booking.pickupLocation ? haversineDistance(
-                        bus.currentLocation.lat,
-                        bus.currentLocation.lng,
-                        booking.pickupLocation.lat,
-                        booking.pickupLocation.lng
-                      ) : null;
-
-                      return (
-                        <div
-                          key={booking.id}
-                          className="p-3 bg-gray-50 rounded-lg"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium">Booking #{booking.id?.slice(-6)}</p>
-                              <p className="text-sm text-gray-600">
-                                Bus: {bus?.busNumber || 'N/A'}
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                {new Date(booking.timestamp).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              <Badge variant="default">Confirmed</Badge>
-                              <span className="text-sm font-medium">रु {booking.fare}</span>
-                            </div>
-                          </div>
-
-                          {/* Distance to pickup */}
-                          {distanceToPickup !== null && (booking.status === 'confirmed' || booking.status === 'pending') && (
-                            <div className={`mt-2 flex items-center gap-2 p-2 rounded ${distanceToPickup < 100
-                              ? 'bg-green-100'
-                              : distanceToPickup < 500
-                                ? 'bg-yellow-100'
-                                : 'bg-blue-100'
-                              }`}>
-                              <Navigation className={`w-4 h-4 ${distanceToPickup < 100
-                                ? 'text-green-600'
-                                : distanceToPickup < 500
-                                  ? 'text-yellow-600'
-                                  : 'text-blue-600'
-                                }`} />
-                              <span className={`text-xs font-semibold ${distanceToPickup < 100
-                                ? 'text-green-700'
-                                : distanceToPickup < 500
-                                  ? 'text-yellow-700'
-                                  : 'text-blue-700'
-                                }`}>
-                                🚌 {distanceToPickup < 1000
-                                  ? `${Math.round(distanceToPickup)} m away`
-                                  : `${(distanceToPickup / 1000).toFixed(1)} km away`}
-                                {distanceToPickup < 100 && ' - Arriving now!'}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+        {/* Floating Action Button for Hailing (Overlaid on Map) */}
+        {selectedBus && !pickupLocation && (
+          <div className="absolute bottom-4 left-4 right-4 z-[400] animate-in slide-in-from-bottom-4 fade-in duration-300">
+            <Button
+              className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
+              onClick={() => {
+                if (userLocation) {
+                  setPickupLocation({
+                    lat: userLocation.lat,
+                    lng: userLocation.lng,
+                    address: 'Current Location'
+                  });
+                } else {
+                  toast({ title: "Waiting for location...", variant: "default" });
+                }
+              }}
+            >
+              <Navigation className="w-5 h-5 fill-current" />
+              HAIL {selectedBus.busNumber} NOW
+            </Button>
           </div>
+        )}
+      </div>
 
-          {/* Map Section */}
-          <div className="lg:col-span-2">
-            <Card className="h-[700px]">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Navigation className="w-5 h-5" />
-                    Available Buses
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-sm">
-                      {buses.filter(b => b.isActive).length} Buses Active
-                    </Badge>
-                    {(pickupLocation || dropoffLocation) && (
-                      <Badge variant="secondary" className="text-sm">
-                        <MapPin className="w-3 h-3 mr-1" />
-                        {(pickupLocation ? 1 : 0) + (dropoffLocation ? 1 : 0)}/2 Locations
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0 h-[calc(700px-80px)]">
-                <MapWrapper
-                  role="passenger"
-                  buses={filteredBuses}
-                  selectedBus={selectedBus}
-                  onBusSelect={setSelectedBus}
-                  onLocationSelect={handleLocationSelect}
-                  showRoute={!!selectedBus}
-                  pickupLocation={pickupLocation}
-                  dropoffLocation={dropoffLocation}
-                  pickupProximityLevel={pickupProximityLevel}
-                />
-              </CardContent>
-            </Card>
+      {/* 3. Scrollable Content (Below Map) */}
+      <div className="flex-1 bg-slate-950 p-4 space-y-6">
+        {/* Booking Panel */}
+        <div className="space-y-2">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Ticket className="w-5 h-5 text-blue-400" />
+            Ride Details
+          </h2>
+          <BookingPanel
+            pickupLocation={pickupLocation}
+            dropoffLocation={dropoffLocation}
+            selectedBus={selectedBus}
+            onBook={handleBookBus}
+            onReset={handleResetLocations}
+            loading={bookingLoading}
+          />
+        </div>
 
-            {/* Instructions */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                      <MapPin className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold">Select Locations</h4>
-                      <p className="text-sm text-gray-600">Click map for pickup & dropoff</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                      <Smartphone className="w-5 h-5 text-green-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold">Click Bus Icons</h4>
-                      <p className="text-sm text-gray-600">Select bus to view seats</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold">Real-time Tracking</h4>
-                      <p className="text-sm text-gray-600">Live bus locations</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+        {/* Instructions / Tips */}
+        {!selectedBus && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-900/50 border border-slate-800 p-3 rounded-xl flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+                <MapPin className="w-4 h-4 text-blue-400" />
+              </div>
+              <span className="text-xs font-medium text-slate-400">1. Tap Bus</span>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-3 rounded-xl flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                <Navigation className="w-4 h-4 text-emerald-400" />
+              </div>
+              <span className="text-xs font-medium text-slate-400">2. Hail</span>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800 p-3 rounded-xl flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-purple-400" />
+              </div>
+              <span className="text-xs font-medium text-slate-400">3. Ride</span>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Bottom Padding for scrolling */}
+        <div className="h-8"></div>
       </div>
     </div>
   );
