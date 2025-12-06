@@ -1,4 +1,3 @@
-/* /components/shared/ConfirmDialog.tsx */
 'use client';
 
 import type React from 'react';

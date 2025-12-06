@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/seperator';
+import { Separator } from '@/components/ui/separator';
 import { Bus } from '@/lib/types';
 import { VEHICLE_TYPE_MAP } from '@/lib/constants';
 import { BusFront, MapPin, Users, Battery, Wifi, Settings, Plus, Minus } from 'lucide-react';
