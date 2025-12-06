@@ -345,12 +345,12 @@ export default function Home() {
                 <BusFront className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="text-lg font-bold text-white">BusTracker Nepal</div>
-                <div className="text-sm text-slate-500">Butwal's Bus Tracking System</div>
+                <div className="text-lg font-bold text-white">VehicleTracker Nepal</div>
+                <div className="text-sm text-slate-500">Butwal's Vehicle Tracking System</div>
               </div>
             </div>
             <div className="text-sm text-slate-500">
-              © 2024 BusTracker Nepal. Made with ❤️ for Butwal
+              © 2025 VehicleTracker Nepal. Made by अपरिचित..
             </div>
           </div>
         </div>
