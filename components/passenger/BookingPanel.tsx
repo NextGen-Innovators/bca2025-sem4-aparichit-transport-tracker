@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Bus } from '@/lib/types';
 import { MapPin, Ticket, X, Navigation } from 'lucide-react';
-import { toast } from 'sonner';
+import { useToast } from '@/components/ui/use-toast';
 import { getDistance, haversineDistance } from '@/lib/utils/geofencing';
 
 interface BookingPanelProps {
@@ -28,14 +29,12 @@ export default function BookingPanel({
 	const [passengerName, setPassengerName] = useState('');
 	const [phoneNumber, setPhoneNumber] = useState('');
 	const [numberOfPassengers, setNumberOfPassengers] = useState(1);
-	const [farePreview, setFarePreview] = useState<number | null>(null);
-	const [distanceKm, setDistanceKm] = useState<number | null>(null);
-	const [busToPickupDistance, setBusToPickupDistance] = useState<number | null>(null);
 	const [validationErrors, setValidationErrors] = useState<{
 		name?: string;
 		phone?: string;
 		passengers?: string;
 	}>({});
+	const { toast } = useToast();
 
 	const seatsUnavailable =
 		!!selectedBus && (selectedBus.availableSeats ?? 0) <= 0;
@@ -43,22 +42,14 @@ export default function BookingPanel({
 	const requestedTooManySeats =
 		!!selectedBus && numberOfPassengers > (selectedBus.availableSeats ?? 0);
 
-	// Distance estimate between pickup and dropoff (km)
-	useEffect(() => {
-		if (!pickupLocation || !dropoffLocation) {
-			setDistanceKm(null);
-			return;
-		}
-		const km = getDistance(pickupLocation, dropoffLocation);
-		setDistanceKm(km);
+	// Derived state using useMemo to avoid useEffect/setState cycles
+	const distanceKm = useMemo(() => {
+		if (!pickupLocation || !dropoffLocation) return null;
+		return getDistance(pickupLocation, dropoffLocation);
 	}, [pickupLocation, dropoffLocation]);
 
-	// Simple fare preview (approximate UI hint only)
-	useEffect(() => {
-		if (!selectedBus || !distanceKm) {
-			setFarePreview(null);
-			return;
-		}
+	const farePreview = useMemo(() => {
+		if (!selectedBus || !distanceKm) return null;
 		const base = 30;
 		const perKm = 10;
 		const vehicleMultiplier =
@@ -72,24 +63,18 @@ export default function BookingPanel({
 
 		const estimated =
 			(base + distanceKm * perKm * vehicleMultiplier) * numberOfPassengers;
-		setFarePreview(Math.round(estimated));
+		return Math.round(estimated);
 	}, [selectedBus, distanceKm, numberOfPassengers]);
 
-	// Calculate distance from bus to pickup location (real-time)
-	useEffect(() => {
-		if (!selectedBus || !pickupLocation) {
-			setBusToPickupDistance(null);
-			return;
-		}
+	const busToPickupDistance = useMemo(() => {
+		if (!selectedBus || !pickupLocation) return null;
 
-		const distanceMeters = haversineDistance(
+		return haversineDistance(
 			selectedBus.currentLocation.lat,
 			selectedBus.currentLocation.lng,
 			pickupLocation.lat,
 			pickupLocation.lng
 		);
-
-		setBusToPickupDistance(distanceMeters);
 	}, [selectedBus, pickupLocation]);
 
 	const handlePassengerCountClick = (value: number) => {
@@ -104,281 +89,187 @@ export default function BookingPanel({
 		}
 	};
 
-	const handleBooking = () => {
+	const handleBooking = (isHail: boolean = false) => {
 		const errors: typeof validationErrors = {};
 
 		if (!selectedBus) {
-			toast('Select a bus first', {
+			toast({
+				title: 'Select a bus first',
 				description: 'Tap on a bus icon on the map to choose your bus.',
+				variant: 'destructive',
 			});
-			errors.passengers = 'Select a bus first';
+			return;
 		}
 
-		if (!pickupLocation || !dropoffLocation) {
-			toast('Select locations first', {
-				description: 'Please select pickup and dropoff locations on the map.',
+		if (!pickupLocation) {
+			toast({
+				title: 'Location needed',
+				description: 'Please wait for location or select on map.',
+				variant: 'destructive',
 			});
-			errors.passengers = 'Select pickup and dropoff locations first';
+			return;
 		}
 
-		if (!passengerName || !phoneNumber) {
-			if (!passengerName) {
-				errors.name = 'Name is required';
-			}
-			if (!phoneNumber) {
-				errors.phone = 'Phone number is required';
-			}
+		// For hailing, we can skip dropoff if not set
+		// For full booking, we might want it, but let's be flexible for "hailing"
+
+		if (!isHail) {
+			if (!passengerName) errors.name = 'Name is required';
+			if (!phoneNumber) errors.phone = 'Phone number is required';
 		}
 
 		if (requestedTooManySeats) {
-			toast('Not enough seats available', {
-				description: `You requested ${numberOfPassengers}, but only ${selectedBus?.availableSeats} seats are available.`,
-			});
-			errors.passengers = `Only ${selectedBus?.availableSeats} seats are available`;
+			errors.passengers = `Only ${selectedBus?.availableSeats} seats available`;
 		}
 
 		setValidationErrors(errors);
 
-		if (Object.keys(errors).length > 0 || !selectedBus || !pickupLocation || !dropoffLocation) {
+		if (Object.keys(errors).length > 0) {
 			return;
 		}
 
 		onBook(selectedBus, {
-			passengerName,
-			phoneNumber,
+			passengerName: passengerName || 'Guest Passenger',
+			phoneNumber: phoneNumber || 'N/A',
 			numberOfPassengers,
 			paymentMethod: 'cash',
+			status: isHail ? 'hailing' : 'pending' // Differentiate hail vs book if needed, or just use pending
 		});
 
 		// Reset form
-		setPassengerName('');
-		setPhoneNumber('');
-		setNumberOfPassengers(1);
+		if (!isHail) {
+			setPassengerName('');
+			setPhoneNumber('');
+			setNumberOfPassengers(1);
+		}
 	};
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className="flex items-center gap-2">
-					<Ticket className="w-5 h-5" />
-					Book Your Ride
-				</CardTitle>
-				<CardDescription>
-					Select locations on the map and choose a bus
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-4">
-				{/* Location Info */}
-				<div className="space-y-2">
-					<div className="flex items-start gap-2 p-2 bg-blue-50 rounded-lg">
-						<MapPin className="w-4 h-4 text-blue-600 mt-0.5" />
-						<div className="flex-1 min-w-0">
-							<p className="text-xs font-medium text-blue-900">Pickup</p>
-							<p className="text-xs text-blue-700 truncate">
-								{pickupLocation?.address || 'Click map to select'}
-							</p>
+		<Card className="bg-slate-900/60 backdrop-blur-xl border-slate-700/50 shadow-xl overflow-hidden">
+			<CardHeader className="pb-4 bg-gradient-to-r from-slate-900/50 to-slate-800/50">
+				<div className="flex items-center justify-between">
+					<div className="flex items-center gap-3">
+						<div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+							<Navigation className="w-5 h-5 text-emerald-400" />
 						</div>
-						{pickupLocation && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-6 w-6 p-0"
-								onClick={onReset}
-							>
-								<X className="w-3 h-3" />
-							</Button>
-						)}
-					</div>
-
-					<div className="flex items-start gap-2 p-2 bg-green-50 rounded-lg">
-						<MapPin className="w-4 h-4 text-green-600 mt-0.5" />
-						<div className="flex-1 min-w-0">
-							<p className="text-xs font-medium text-green-900">Dropoff</p>
-							<p className="text-xs text-green-700 truncate">
-								{dropoffLocation?.address || 'Click map to select'}
-							</p>
+						<div>
+							<CardTitle className="text-lg font-bold text-white">Ride Request</CardTitle>
+							<CardDescription className="text-slate-400">
+								{selectedBus ? `Bus ${selectedBus.busNumber} Selected` : 'Select a bus to hail'}
+							</CardDescription>
 						</div>
 					</div>
 				</div>
-
-				{/* Selected Bus */}
-				{selectedBus && (
-					<div className="p-3 bg-gray-50 rounded-lg border-2 border-blue-200">
-						<p className="text-sm font-medium text-gray-700">Selected Bus</p>
-						<p className="text-lg font-bold text-blue-600">{selectedBus.busNumber}</p>
-						<p className="text-xs text-gray-600">{selectedBus.driverName}</p>
-						<div className="mt-2 flex items-center gap-2">
-							<span className="text-xs text-gray-500">Available Seats:</span>
-							<span className="text-sm font-bold text-green-600">
-								{selectedBus.availableSeats}/{selectedBus.capacity}
-							</span>
-						</div>
-
-						{/* Bus to Pickup Distance */}
-						{busToPickupDistance !== null && pickupLocation && (
-							<div className={`mt-3 p-3 rounded-lg border-2 ${busToPickupDistance < 100
-								? 'bg-green-50 border-green-300'
-								: busToPickupDistance < 500
-									? 'bg-yellow-50 border-yellow-300'
-									: 'bg-blue-50 border-blue-300'
-								}`}>
-								<div className="flex items-center gap-2 mb-1">
-									<Navigation className={`w-4 h-4 ${busToPickupDistance < 100
-										? 'text-green-600'
-										: busToPickupDistance < 500
-											? 'text-yellow-600'
-											: 'text-blue-600'
-										}`} />
-									<p className={`text-xs font-semibold ${busToPickupDistance < 100
-										? 'text-green-900'
-										: busToPickupDistance < 500
-											? 'text-yellow-900'
-											: 'text-blue-900'
-										}`}>
-										Bus Distance to Pickup
-									</p>
-								</div>
-								<p className={`text-2xl font-bold ${busToPickupDistance < 100
-									? 'text-green-600'
-									: busToPickupDistance < 500
-										? 'text-yellow-600'
-										: 'text-blue-600'
-									}`}>
-									{busToPickupDistance < 1000
-										? `${Math.round(busToPickupDistance)} m`
-										: `${(busToPickupDistance / 1000).toFixed(1)} km`}
-								</p>
-								<p className={`text-xs mt-1 ${busToPickupDistance < 100
-									? 'text-green-700'
-									: busToPickupDistance < 500
-										? 'text-yellow-700'
-										: 'text-blue-700'
-									}`}>
-									{busToPickupDistance < 100
-										? '🎉 Bus arriving now!'
-										: busToPickupDistance < 500
-											? `⏱️ Arriving in ~${Math.round(busToPickupDistance / 250)} min`
-											: `⏱️ ETA: ~${Math.round(busToPickupDistance / 250)} min`}
+			</CardHeader>
+			<CardContent className="space-y-6 pt-6">
+				{/* Selected Bus Info & Hail Button */}
+				{selectedBus ? (
+					<div className="space-y-4 animate-in slide-in-from-bottom-4 fade-in duration-500">
+						{/* Quick Info */}
+						<div className="flex items-center justify-between p-3 bg-slate-800/30 rounded-xl border border-slate-700/50">
+							<div>
+								<p className="text-xs text-slate-400 uppercase font-bold">ETA</p>
+								<p className="text-lg font-bold text-emerald-400">
+									{busToPickupDistance && busToPickupDistance < 1000
+										? `${Math.round(busToPickupDistance)}m`
+										: busToPickupDistance
+											? `${(busToPickupDistance / 1000).toFixed(1)}km`
+											: '--'}
 								</p>
 							</div>
-						)}
-
-						{/* Distance & fare preview */}
-						{distanceKm !== null && (
-							<div className="mt-2 text-xs text-gray-600 flex flex-col gap-0.5">
-								<span>
-									Approx. distance:{' '}
-									<span className="font-semibold">
-										{distanceKm < 1
-											? `${Math.round(distanceKm * 1000)} m`
-											: `${distanceKm.toFixed(1)} km`}
-									</span>
-								</span>
-								{farePreview !== null && (
-									<span>
-										Estimated fare for {numberOfPassengers} passenger
-										{numberOfPassengers > 1 ? 's' : ''}:{' '}
-										<span className="font-semibold">रु {farePreview}</span>
-									</span>
-								)}
+							<div className="text-right">
+								<p className="text-xs text-slate-400 uppercase font-bold">Seats</p>
+								<p className="text-lg font-bold text-white">{selectedBus.availableSeats}</p>
 							</div>
-						)}
-					</div>
-				)}
-
-				{/* Booking Form - Shows when bus is selected */}
-				{selectedBus && (
-					<div className="space-y-3 pt-2 border-t">
-						<div className="space-y-1.5">
-							<Label htmlFor="name" className="text-sm">Your Name</Label>
-							<Input
-								id="name"
-								placeholder="Enter your name"
-								value={passengerName}
-								onChange={(e) => setPassengerName(e.target.value)}
-							/>
-							{validationErrors.name && (
-								<p className="text-xs text-red-600">{validationErrors.name}</p>
-							)}
 						</div>
 
-						<div className="space-y-1.5">
-							<Label htmlFor="phone" className="text-sm">Phone Number</Label>
-							<Input
-								id="phone"
-								type="tel"
-								placeholder="+977 98XXXXXXXX"
-								value={phoneNumber}
-								onChange={(e) => setPhoneNumber(e.target.value)}
-							/>
-							{validationErrors.phone && (
-								<p className="text-xs text-red-600">{validationErrors.phone}</p>
-							)}
-						</div>
-
-						<div className="space-y-1.5">
-							<Label className="text-sm">Number of Passengers</Label>
-							<div className="flex flex-wrap gap-1">
-								{Array.from({ length: 10 }).map((_, idx) => {
-									const value = idx + 1;
-									const disabled =
-										value > (selectedBus.availableSeats ?? 0);
-									return (
-										<Button
-											key={value}
-											type="button"
-											size="sm"
-											variant={
-												value === numberOfPassengers ? 'default' : 'outline'
-											}
-											className="min-h-9 min-w-9 px-0 text-xs"
-											disabled={disabled}
-											onClick={() => handlePassengerCountClick(value)}
-										>
-											{value}
-										</Button>
-									);
-								})}
-							</div>
-							{validationErrors.passengers && (
-								<p className="text-xs text-red-600">{validationErrors.passengers}</p>
-							)}
-						</div>
-
+						{/* BIG HAIL BUTTON */}
 						<Button
-							className="w-full"
-							onClick={handleBooking}
-							disabled={
-								loading ||
-								!passengerName ||
-								!phoneNumber ||
-								!pickupLocation ||
-								!dropoffLocation ||
-								seatsUnavailable ||
-								requestedTooManySeats
-							}
+							className={`w-full h-14 text-lg font-black shadow-xl transition-all ${loading || seatsUnavailable
+								? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+								: 'bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-[1.02]'
+								}`}
+							onClick={() => handleBooking(true)}
+							disabled={loading || seatsUnavailable}
 						>
-							{loading
-								? 'Booking...'
-								: !pickupLocation || !dropoffLocation
-									? 'Select locations first'
-									: seatsUnavailable
-										? 'No seats available'
-										: requestedTooManySeats
-											? 'Reduce passenger count'
-											: 'Book Now'}
+							{loading ? (
+								<span className="flex items-center gap-2">
+									<span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+									Connecting...
+								</span>
+							) : seatsUnavailable ? (
+								'Bus Full'
+							) : (
+								<span className="flex items-center gap-2">
+									HAIL BUS NOW
+									<Navigation className="w-5 h-5 fill-current" />
+								</span>
+							)}
 						</Button>
-					</div>
-				)}
+						<p className="text-xs text-center text-slate-500">
+							Tap to instantly notify driver of your location
+						</p>
 
-				{/* Instructions */}
-				{!selectedBus && (
-					<div className="text-center py-4 text-sm text-gray-500 space-y-1">
-						<p className="font-medium text-gray-700">How to book:</p>
-						<p>1. Click on the map to select pickup location</p>
-						<p>2. Click again to select dropoff location</p>
-						<p>3. <span className="font-semibold text-blue-600">Click on a bus icon</span> to select it</p>
-						<p>4. Fill in your details and book!</p>
+						{/* Optional Details Accordion */}
+						<details className="group">
+							<summary className="flex items-center justify-center gap-2 text-xs font-medium text-slate-400 cursor-pointer hover:text-white transition-colors py-2">
+								<span>Add Details / Pre-book</span>
+								<div className="w-4 h-4 transition-transform group-open:rotate-180">▼</div>
+							</summary>
+							<div className="pt-4 space-y-4 border-t border-slate-800 mt-2">
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<div className="space-y-2">
+										<Label htmlFor="name" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Name</Label>
+										<Input
+											id="name"
+											placeholder="Your Name"
+											value={passengerName}
+											onChange={(e) => setPassengerName(e.target.value)}
+											className="bg-slate-950/50 border-slate-800 text-white h-10"
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="phone" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Phone</Label>
+										<Input
+											id="phone"
+											type="tel"
+											placeholder="Phone Number"
+											value={phoneNumber}
+											onChange={(e) => setPhoneNumber(e.target.value)}
+											className="bg-slate-950/50 border-slate-800 text-white h-10"
+										/>
+									</div>
+								</div>
+								<div className="space-y-2">
+									<Label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Passengers</Label>
+									<div className="flex flex-wrap gap-2">
+										{Array.from({ length: 5 }).map((_, idx) => (
+											<Button
+												key={idx + 1}
+												type="button"
+												size="sm"
+												variant={idx + 1 === numberOfPassengers ? 'default' : 'outline'}
+												className={`h-8 w-8 p-0 ${idx + 1 === numberOfPassengers ? 'bg-blue-600' : 'bg-slate-900 border-slate-700'}`}
+												onClick={() => setNumberOfPassengers(idx + 1)}
+											>
+												{idx + 1}
+											</Button>
+										))}
+									</div>
+								</div>
+							</div>
+						</details>
+					</div>
+				) : (
+					/* Empty State */
+					<div className="text-center py-8 px-4 border-2 border-dashed border-slate-800 rounded-xl bg-slate-900/20">
+						<div className="w-12 h-12 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-3">
+							<Navigation className="w-6 h-6 text-slate-600" />
+						</div>
+						<p className="text-slate-400 font-medium mb-2">Select a Bus</p>
+						<p className="text-xs text-slate-500 max-w-[200px] mx-auto">
+							Tap any bus on the map to hail it instantly.
+						</p>
 					</div>
 				)}
 			</CardContent>
