@@ -13,7 +13,25 @@ export const subscribeToBuses = (callback: (buses: Bus[]) => void) => {
     const unsubscribe = onValue(busesRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-            const busesList = Object.values(data) as Bus[];
+            const busesList = Object.values(data).map((bus: any) => {
+                // Parse Location timestamps properly
+                if (bus.currentLocation) {
+                    const timestamp = bus.currentLocation.timestamp instanceof Date
+                        ? bus.currentLocation.timestamp
+                        : typeof bus.currentLocation.timestamp === 'string'
+                        ? new Date(bus.currentLocation.timestamp)
+                        : new Date();
+                    
+                    return {
+                        ...bus,
+                        currentLocation: {
+                            ...bus.currentLocation,
+                            timestamp,
+                        },
+                    };
+                }
+                return bus;
+            }) as Bus[];
             callback(busesList);
         } else {
             callback([]);
@@ -23,12 +41,75 @@ export const subscribeToBuses = (callback: (buses: Bus[]) => void) => {
     return unsubscribe;
 };
 
-export const updateBusLocation = async (busId: string, location: Location) => {
+export const updateBusLocation = async (
+    busId: string, 
+    location: { lat: number; lng: number; heading?: number; speed?: number }
+) => {
+    const db = getDb();
+    const busRef = ref(db, `buses/${busId}/currentLocation`);
+    
+    // Serialize location with timestamp as ISO string for Firebase
+    const locationData = {
+        lat: location.lat,
+        lng: location.lng,
+        timestamp: new Date().toISOString(),
+        ...(location.heading !== undefined && { heading: location.heading }),
+        ...(location.speed !== undefined && { speed: location.speed }),
+    };
+    
+    await set(busRef, locationData);
+    
+    // Also update locationSharingEnabled flag
+    const busMainRef = ref(db, `buses/${busId}`);
+    await update(busMainRef, {
+        locationSharingEnabled: true,
+        isActive: true,
+    });
+};
+
+/**
+ * Update location sharing status for a bus
+ * @param busId - Bus ID
+ * @param enabled - Whether location sharing is enabled
+ */
+export const updateLocationSharingStatus = async (busId: string, enabled: boolean) => {
     const db = getDb();
     const busRef = ref(db, `buses/${busId}`);
     await update(busRef, {
-        currentLocation: location
+        locationSharingEnabled: enabled,
+        isActive: enabled,
     });
+};
+
+/**
+ * Subscribe to real-time location updates for a specific bus
+ * @param busId - Bus ID to listen to
+ * @param callback - Callback function that receives location updates
+ * @returns Unsubscribe function
+ */
+export const subscribeToBusLocation = (
+    busId: string,
+    callback: (location: { lat: number; lng: number; timestamp: string; heading?: number; speed?: number } | null) => void
+) => {
+    const db = getDb();
+    const locationRef = ref(db, `buses/${busId}/currentLocation`);
+
+    const unsubscribe = onValue(locationRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            callback({
+                lat: data.lat,
+                lng: data.lng,
+                timestamp: data.timestamp || new Date().toISOString(),
+                heading: data.heading,
+                speed: data.speed,
+            });
+        } else {
+            callback(null);
+        }
+    });
+
+    return unsubscribe;
 };
 
 export const updateBusSeatStatus = async (busId: string, online: number, offline: number) => {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Component, ReactNode, useEffect, useState } from 'react';
+import React, { Component, ReactNode, useEffect, useState, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Circle, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -27,6 +27,8 @@ interface LeafletMapProps {
     dropoffLocation?: { lat: number; lng: number; address?: string } | null;
     userLocation?: { lat: number; lng: number } | null;
     pickupProximityLevel?: 'far' | 'approaching' | 'nearby' | 'arrived' | null;
+    busETAs?: Record<string, number | null>;
+    busLocations?: Record<string, { lat: number; lng: number; timestamp: string; heading?: number; speed?: number }>;
 }
 
 // Component to handle map center updates - only on significant changes or initial load
@@ -45,10 +47,13 @@ function MapUpdater({ center, selectedBusId }: { center: { lat: number; lng: num
     return null;
 }
 
-// Helper to create emoji icons
-const createBusIcon = (emoji: string, color: string) => {
+// Helper to create emoji icons with pulsing animation for active buses
+const createBusIcon = (emoji: string, color: string, isActive: boolean = true, heading?: number) => {
+    const rotation = heading !== undefined ? `transform: rotate(${heading}deg);` : '';
+    const pulseClass = isActive ? 'bus-icon-pulse' : '';
+    
     return L.divIcon({
-        className: 'custom-bus-icon cursor-pointer',
+        className: `custom-bus-icon cursor-pointer ${pulseClass}`,
         html: `<div style="
       background-color: ${color};
       width: 40px;
@@ -62,6 +67,8 @@ const createBusIcon = (emoji: string, color: string) => {
       font-size: 24px;
       z-index: 1000;
       pointer-events: auto;
+      ${rotation}
+      transition: transform 0.3s ease-out;
     ">${emoji}</div>`,
         iconSize: [40, 40],
         iconAnchor: [20, 20],
@@ -231,6 +238,152 @@ class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorBoundary
     }
 }
 
+// Component to handle smooth marker updates
+function AnimatedBusMarker({ 
+    bus, 
+    onBusSelect, 
+    busLocation,
+    busETA 
+}: { 
+    bus: Bus; 
+    onBusSelect?: (bus: Bus) => void;
+    busLocation?: { lat: number; lng: number; timestamp: string; heading?: number; speed?: number };
+    busETA?: number | null;
+}) {
+    const markerRef = useRef<L.Marker>(null);
+    const iconRef = useRef<L.DivIcon | null>(null);
+
+    const [isInitialized, setIsInitialized] = useState(false);
+
+    useEffect(() => {
+        if (markerRef.current && busLocation) {
+            const newLatLng = L.latLng(busLocation.lat, busLocation.lng);
+            
+            if (!isInitialized) {
+                // First render - set position without animation
+                markerRef.current.setLatLng(newLatLng);
+                setIsInitialized(true);
+            } else {
+                // Subsequent updates - animate if position changed
+                const currentLatLng = markerRef.current.getLatLng();
+                const distance = currentLatLng.distanceTo(newLatLng);
+                
+                // Only animate if moved more than 1 meter
+                if (distance > 1) {
+                    // Manual smooth animation
+                    const startLat = currentLatLng.lat;
+                    const startLng = currentLatLng.lng;
+                    const endLat = newLatLng.lat;
+                    const endLng = newLatLng.lng;
+                    const duration = 1000; // 1 second
+                    const startTime = Date.now();
+                    
+                    const animate = () => {
+                        const elapsed = Date.now() - startTime;
+                        const progress = Math.min(elapsed / duration, 1);
+                        
+                        // Easing function (ease-out)
+                        const easeOut = 1 - Math.pow(1 - progress, 3);
+                        
+                        const currentLat = startLat + (endLat - startLat) * easeOut;
+                        const currentLng = startLng + (endLng - startLng) * easeOut;
+                        
+                        markerRef.current?.setLatLng([currentLat, currentLng]);
+                        
+                        if (progress < 1) {
+                            requestAnimationFrame(animate);
+                        } else {
+                            // Ensure final position is exact
+                            markerRef.current?.setLatLng(newLatLng);
+                        }
+                    };
+                    
+                    requestAnimationFrame(animate);
+                } else {
+                    // Small movement - just update directly
+                    markerRef.current.setLatLng(newLatLng);
+                }
+            }
+
+            // Update icon rotation if heading changed
+            if (busLocation.heading !== undefined) {
+                const newIcon = createBusIcon(
+                    bus.emoji,
+                    VEHICLE_TYPE_MAP[bus.vehicleType]?.color || '#2563eb',
+                    bus.isActive,
+                    busLocation.heading
+                );
+                if (markerRef.current) {
+                    markerRef.current.setIcon(newIcon);
+                }
+                iconRef.current = newIcon;
+            }
+        }
+    }, [busLocation, bus, isInitialized]);
+
+    const icon = useMemo(() => {
+        const createdIcon = createBusIcon(
+            bus.emoji,
+            VEHICLE_TYPE_MAP[bus.vehicleType]?.color || '#2563eb',
+            bus.isActive,
+            busLocation?.heading
+        );
+        iconRef.current = createdIcon;
+        return createdIcon;
+    }, [bus.emoji, bus.vehicleType, bus.isActive, busLocation?.heading]);
+
+    const position = busLocation 
+        ? [busLocation.lat, busLocation.lng] as [number, number]
+        : [bus.currentLocation.lat, bus.currentLocation.lng] as [number, number];
+
+    const getLastUpdateText = () => {
+        if (!busLocation?.timestamp) return '';
+        const updateTime = new Date(busLocation.timestamp).getTime();
+        const secondsAgo = Math.floor((Date.now() - updateTime) / 1000);
+        if (secondsAgo < 10) return `Updated ${secondsAgo}s ago`;
+        if (secondsAgo < 60) return `Updated ${secondsAgo}s ago`;
+        return `Updated ${Math.floor(secondsAgo / 60)}m ago`;
+    };
+
+    return (
+        <Marker
+            ref={markerRef}
+            position={position}
+            icon={icon}
+            eventHandlers={{
+                click: () => onBusSelect?.(bus),
+            }}
+            zIndexOffset={1000}
+        >
+            <Popup>
+                <div className="p-2">
+                    <h3 className="font-bold">{bus.busNumber}</h3>
+                    <p>{bus.driverName}</p>
+                    <p className="text-sm text-gray-500">{bus.route}</p>
+                    <div className="mt-2 text-xs">
+                        Seats: {bus.availableSeats}/{bus.capacity}
+                    </div>
+                    {busLocation && (
+                        <div className="mt-2 text-xs text-green-600">
+                            🟢 Live
+                        </div>
+                    )}
+                    {busLocation && getLastUpdateText() && (
+                        <div className="text-xs text-gray-400">
+                            {getLastUpdateText()}
+                        </div>
+                    )}
+                    {busETA !== null && busETA !== undefined && (
+                        <div className="mt-1 text-xs font-semibold text-blue-600">
+                            {busETA === 0 ? 'Arriving now' : `ETA: ${busETA} min${busETA > 1 ? 's' : ''}`}
+                        </div>
+                    )}
+                </div>
+            </Popup>
+        </Marker>
+    );
+}
+
 function LeafletMapInner({
     role,
     buses,
@@ -241,6 +394,8 @@ function LeafletMapInner({
     pickupLocation,
     dropoffLocation,
     userLocation,
+    busETAs = {},
+    busLocations = {},
 }: LeafletMapProps) {
     const [mounted, setMounted] = useState(false);
 
@@ -294,28 +449,15 @@ function LeafletMapInner({
                     </Marker>
                 )}
 
-                {/* Buses */}
+                {/* Buses with smooth animation */}
                 {buses.filter(b => b.isActive).map(bus => (
-                    <Marker
+                    <AnimatedBusMarker
                         key={bus.id}
-                        position={[bus.currentLocation.lat, bus.currentLocation.lng]}
-                        icon={createBusIcon(bus.emoji, VEHICLE_TYPE_MAP[bus.vehicleType]?.color || '#2563eb')}
-                        eventHandlers={{
-                            click: () => onBusSelect?.(bus),
-                        }}
-                        zIndexOffset={1000}
-                    >
-                        <Popup>
-                            <div className="p-2">
-                                <h3 className="font-bold">{bus.busNumber}</h3>
-                                <p>{bus.driverName}</p>
-                                <p className="text-sm text-gray-500">{bus.route}</p>
-                                <div className="mt-2 text-xs">
-                                    Seats: {bus.availableSeats}/{bus.capacity}
-                                </div>
-                            </div>
-                        </Popup>
-                    </Marker>
+                        bus={bus}
+                        onBusSelect={onBusSelect}
+                        busLocation={busLocations[bus.id]}
+                        busETA={busETAs[bus.id]}
+                    />
                 ))}
 
                 {/* Pickup/Dropoff Markers */}

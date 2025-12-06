@@ -1,4 +1,3 @@
-/* /app/passenger/page.tsx  */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -27,6 +26,8 @@ import { checkProximity, haversineDistance, ProximityLevel } from '@/lib/utils/g
 import { toast as sonnerToast } from 'sonner';
 import { NotificationToast } from '@/components/shared/NotificationToast';
 import DetailedBookingModal from '@/components/passenger/DetailedBookingModal';
+import { subscribeToBusLocation } from '@/lib/firebaseDb';
+import { calculateETA, formatETA, formatDistance } from '@/lib/utils/etaCalculator';
 
 export default function PassengerDashboard() {
   const router = useRouter();
@@ -57,6 +58,14 @@ export default function PassengerDashboard() {
     useState(false);
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [busLocations, setBusLocations] = useState<Record<string, {
+    lat: number;
+    lng: number;
+    timestamp: string;
+    heading?: number;
+    speed?: number;
+  }>>({});
+  const [busETAs, setBusETAs] = useState<Record<string, number | null>>({});
 
   // Get user's current location
   useEffect(() => {
@@ -109,10 +118,141 @@ export default function PassengerDashboard() {
   // Subscribe to real-time bus updates
   useEffect(() => {
     const unsubscribe = subscribeToBuses((busesData) => {
-      setBuses(busesData);
+      // Parse Location timestamps properly
+      const parsedBuses = busesData.map(bus => {
+        if (bus.currentLocation) {
+          // Handle both Date objects and ISO strings
+          const timestamp = bus.currentLocation.timestamp instanceof Date
+            ? bus.currentLocation.timestamp
+            : typeof bus.currentLocation.timestamp === 'string'
+            ? new Date(bus.currentLocation.timestamp)
+            : new Date();
+          
+          return {
+            ...bus,
+            currentLocation: {
+              ...bus.currentLocation,
+              timestamp,
+            },
+          };
+        }
+        return bus;
+      });
+      setBuses(parsedBuses);
     });
     return () => unsubscribe();
   }, []);
+
+  // Subscribe to real-time location updates for each active bus
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log('[PASSENGER] Setting up location listeners for buses:', buses.map(b => ({ id: b.id, isActive: b.isActive })));
+    
+    const unsubscribes: (() => void)[] = [];
+
+    buses.forEach(bus => {
+      if (bus.isActive) {
+        // eslint-disable-next-line no-console
+        console.log('[PASSENGER] Subscribing to bus location:', bus.id);
+        
+        const unsubscribe = subscribeToBusLocation(bus.id, (location) => {
+          if (location) {
+            // eslint-disable-next-line no-console
+            console.log('[PASSENGER] ✅ Received location update:', {
+              busId: bus.id,
+              busNumber: bus.busNumber,
+              lat: location.lat,
+              lng: location.lng,
+              timestamp: location.timestamp,
+              heading: location.heading,
+              speed: location.speed,
+            });
+
+            setBusLocations(prev => ({
+              ...prev,
+              [bus.id]: location,
+            }));
+
+            // Calculate ETA only if user location is available AND this is the selected bus
+            // ETA should only be shown after passenger selects a vehicle
+            if (userLocation && selectedBus && selectedBus.id === bus.id) {
+              const eta = calculateETA(
+                { lat: location.lat, lng: location.lng },
+                userLocation,
+                location.speed || 30
+              );
+              setBusETAs(prev => ({
+                ...prev,
+                [bus.id]: eta,
+              }));
+              
+              // eslint-disable-next-line no-console
+              console.log('[PASSENGER] ETA calculated:', {
+                busId: bus.id,
+                eta,
+                distance: formatDistance({ lat: location.lat, lng: location.lng }, userLocation),
+              });
+            } else {
+              // Clear ETA if bus is not selected
+              if (selectedBus && selectedBus.id !== bus.id) {
+                setBusETAs(prev => {
+                  const updated = { ...prev };
+                  delete updated[bus.id];
+                  return updated;
+                });
+              }
+              // eslint-disable-next-line no-console
+              console.log('[PASSENGER] ⚠️ ETA not calculated:', {
+                hasUserLocation: !!userLocation,
+                hasSelectedBus: !!selectedBus,
+                isSelectedBus: selectedBus?.id === bus.id,
+              });
+            }
+          } else {
+            // eslint-disable-next-line no-console
+            console.log('[PASSENGER] ⚠️ Received null location for bus:', bus.id);
+          }
+        });
+        unsubscribes.push(unsubscribe);
+      }
+    });
+
+    return () => {
+      // eslint-disable-next-line no-console
+      console.log('[PASSENGER] Cleaning up location listeners');
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [buses, userLocation, selectedBus]);
+
+  // Update bus locations in buses array when real-time updates arrive
+  useEffect(() => {
+    if (Object.keys(busLocations).length === 0) return;
+
+    setBuses(prevBuses => {
+      const updated = prevBuses.map(bus => {
+        const locationUpdate = busLocations[bus.id];
+        if (locationUpdate) {
+          // Only update if location actually changed
+          const currentLat = bus.currentLocation.lat;
+          const currentLng = bus.currentLocation.lng;
+          if (Math.abs(currentLat - locationUpdate.lat) > 0.00001 || 
+              Math.abs(currentLng - locationUpdate.lng) > 0.00001) {
+            return {
+              ...bus,
+              currentLocation: {
+                ...bus.currentLocation,
+                lat: locationUpdate.lat,
+                lng: locationUpdate.lng,
+                timestamp: new Date(locationUpdate.timestamp),
+              },
+            };
+          }
+        }
+        return bus;
+      });
+      return updated;
+    });
+  }, [busLocations]);
 
   // Subscribe to this passenger's bookings in real-time
   useEffect(() => {
@@ -543,6 +683,8 @@ export default function PassengerDashboard() {
           dropoffLocation={dropoffLocation}
           pickupProximityLevel={pickupProximityLevel}
           userLocation={userLocation}
+          busETAs={busETAs}
+          busLocations={busLocations}
         />
 
         {/* Floating Action Button for Hailing (Overlaid on Map) */}

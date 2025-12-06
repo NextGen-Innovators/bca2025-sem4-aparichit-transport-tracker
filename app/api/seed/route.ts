@@ -1,4 +1,3 @@
-/* /api/seed/route.ts */
 import { NextResponse } from 'next/server';
 import { seedDemoBuses, clearDemoData, hasDemoBuses } from '@/lib/seedData';
 

@@ -1,4 +1,3 @@
-/* /api/auth/register/route.ts */
 import { NextResponse } from 'next/server';
 import { getFirebaseAdminAuth } from '@/lib/firebaseAdmin';
 import { getFirestore } from 'firebase-admin/firestore';

@@ -36,7 +36,7 @@ export function haversineDistance(
   lat2: number,
   lng2: number
 ): number {
-  const km = getDistance({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lat2 });
+  const km = getDistance({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 });
   return km * 1000;
 }
 

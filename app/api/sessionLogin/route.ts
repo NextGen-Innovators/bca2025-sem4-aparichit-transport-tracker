@@ -1,4 +1,3 @@
-/* /api/sessionLogin/route.ts */
 import { NextResponse } from 'next/server';
 import { getFirebaseAdminAuth } from '@/lib/firebaseAdmin';
 

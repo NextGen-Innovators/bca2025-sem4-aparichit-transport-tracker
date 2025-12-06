@@ -29,6 +29,8 @@ interface MapWrapperProps {
     dropoffLocation?: { lat: number; lng: number; address?: string } | null;
     userLocation?: { lat: number; lng: number } | null;
     pickupProximityLevel?: 'far' | 'approaching' | 'nearby' | 'arrived' | null;
+    busETAs?: Record<string, number | null>;
+    busLocations?: Record<string, { lat: number; lng: number; timestamp: string; heading?: number; speed?: number }>;
 }
 
 export default function MapWrapper(props: MapWrapperProps) {

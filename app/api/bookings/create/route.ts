@@ -1,4 +1,3 @@
-/* /api/bookings/create/route.ts */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getFirebaseAdminAuth } from '@/lib/firebaseAdmin';

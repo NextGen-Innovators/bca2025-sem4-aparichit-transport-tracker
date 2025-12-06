@@ -1,12 +1,28 @@
-"use client"
+'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BusFront, Users, MapPin, Clock, Navigation, Smartphone, ArrowRight, Zap, Shield, Star } from 'lucide-react';
-import { ToastContainer, toast } from 'react-toastify';
+import { useAuth } from '@/lib/contexts/AuthContext';
 
 export default function Home() {
+  const { currentUser, signOut } = useAuth();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  const handleRoleSwitch = async (role: 'driver' | 'passenger') => {
+    if (currentUser) {
+      // Sign out first, then redirect to auth with the new role
+      await signOut();
+      window.location.href = `/auth?role=${role}&switch_role=true`;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950">
       {/* Animated Background */}
@@ -48,26 +64,51 @@ export default function Home() {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-5 justify-center items-center mb-20">
-            <Link href="/auth?role=passenger" onClick={() => toast("Sign In as Passenger")}>
-              <Button
-                size="lg"
-                className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 border-0 transition-all duration-300 hover:scale-105"
-              >
-                <Users className="w-6 h-6 mr-3" />
-                Track Bus
-                <ArrowRight className="w-5 h-5 ml-3 group-hover:translate-x-1 transition-transform" />
-              </Button>
-            </Link>
-            <Link href="/auth?role=driver" onClick={() => toast("Sign In as Driver")}>
-              <Button
-                size="lg"
-                variant="outline"
-                className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-white/5 border-2 border-white/20 text-white hover:bg-white/10 hover:border-gray-500 backdrop-blur-sm transition-all duration-300"
-              >
-                <BusFront className="w-6 h-6 mr-3" />
-                I'm a Driver
-              </Button>
-            </Link>
+            {isClient && currentUser ? (
+              <>
+                <Button
+                  size="lg"
+                  onClick={() => handleRoleSwitch('passenger')}
+                  className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 border-0 transition-all duration-300 hover:scale-105"
+                >
+                  <Users className="w-6 h-6 mr-3" />
+                  Track Your Bus
+                  <ArrowRight className="w-5 h-5 ml-3 group-hover:translate-x-1 transition-transform" />
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => handleRoleSwitch('driver')}
+                  variant="outline"
+                  className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-white/5 border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 backdrop-blur-sm transition-all duration-300"
+                >
+                  <BusFront className="w-6 h-6 mr-3" />
+                  I'm a Driver
+                </Button>
+              </>
+            ) : (
+              <>
+                <Link href="/auth?role=passenger">
+                  <Button
+                    size="lg"
+                    className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 border-0 transition-all duration-300 hover:scale-105"
+                  >
+                    <Users className="w-6 h-6 mr-3" />
+                    Track Your Bus
+                    <ArrowRight className="w-5 h-5 ml-3 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+                <Link href="/auth?role=driver">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="group w-full sm:w-auto h-16 px-10 text-lg font-semibold rounded-2xl bg-white/5 border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 backdrop-blur-sm transition-all duration-300"
+                  >
+                    <BusFront className="w-6 h-6 mr-3" />
+                    I'm a Driver
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Stats */}
@@ -311,26 +352,51 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
-            <Link href="/auth?role=passenger" onClick={() => toast("Sign In as Passenger")}>
-              <Button
-                size="lg"
-                className="group w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
-              >
-                <Users className="w-7 h-7 mr-3" />
-                Get Started Now
-                <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-2 transition-transform" />
-              </Button>
-            </Link>
-            <Link href="/auth?role=driver" onClick={() => toast("Sign In as Driver")}>
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-white/5 border-2 border-white/30 text-white hover:bg-white/10 backdrop-blur-sm transition-all duration-300"
-              >
-                <BusFront className="w-7 h-7 mr-3" />
-                Join as Driver
-              </Button>
-            </Link>
+            {isClient && currentUser ? (
+              <>
+                <Button
+                  size="lg"
+                  onClick={() => handleRoleSwitch('passenger')}
+                  className="group w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
+                >
+                  <Users className="w-7 h-7 mr-3" />
+                  Get Started Now
+                  <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-2 transition-transform" />
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => handleRoleSwitch('driver')}
+                  variant="outline"
+                  className="w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-white/5 border-2 border-white/30 text-white hover:bg-white/10 backdrop-blur-sm transition-all duration-300"
+                >
+                  <BusFront className="w-7 h-7 mr-3" />
+                  Join as Driver
+                </Button>
+              </>
+            ) : (
+              <>
+                <Link href="/auth?role=passenger">
+                  <Button
+                    size="lg"
+                    className="group w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
+                  >
+                    <Users className="w-7 h-7 mr-3" />
+                    Get Started Now
+                    <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-2 transition-transform" />
+                  </Button>
+                </Link>
+                <Link href="/auth?role=driver">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full sm:w-auto h-20 px-12 text-xl font-bold rounded-2xl bg-white/5 border-2 border-white/30 text-white hover:bg-white/10 backdrop-blur-sm transition-all duration-300"
+                  >
+                    <BusFront className="w-7 h-7 mr-3" />
+                    Join as Driver
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
 
           <p className="text-slate-500 mt-12 text-sm">
@@ -348,28 +414,16 @@ export default function Home() {
                 <BusFront className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="text-lg font-bold text-white">VehicleTracker Nepal</div>
-                <div className="text-sm text-slate-500">Butwal's Vehicle Tracking System</div>
+                <div className="text-lg font-bold text-white">BusTracker Nepal</div>
+                <div className="text-sm text-slate-500">Butwal's Bus Tracking System</div>
               </div>
             </div>
             <div className="text-sm text-slate-500">
-              © 2025 VehicleTracker Nepal. Made by अपरिचित..
+              © 2024 BusTracker Nepal. Made with ❤️ for Butwal
             </div>
           </div>
         </div>
       </div>
-      <ToastContainer
-        position="top-right"
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick={false}
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="dark"
-      />
     </div>
   );
 }

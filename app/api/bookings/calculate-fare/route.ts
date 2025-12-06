@@ -1,4 +1,3 @@
-/* /api/bookings/calculate-fare/route.ts */
 import { NextResponse } from 'next/server';
 import { calculateFareFromLocations } from '@/lib/utils/fareCalculator';
 import { VehicleTypeId } from '@/lib/types';

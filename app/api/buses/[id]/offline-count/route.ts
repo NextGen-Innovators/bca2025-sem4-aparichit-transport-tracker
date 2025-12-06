@@ -1,4 +1,3 @@
-/* /api/buses/[id]/offline-count/route.ts */
 import { NextResponse } from 'next/server';
 import { getFirebaseAdminAuth } from '@/lib/firebaseAdmin';
 import { getDatabase } from 'firebase-admin/database';
@@ -16,7 +15,7 @@ function getAdminApp() {
     }
 
     // Use regional database URL if provided, otherwise default to asia-southeast1
-    const databaseURL = process.env.FIREBASE_DATABASE_URL ||
+    const databaseURL = process.env.FIREBASE_DATABASE_URL || 
       `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
 
     return initializeApp({
