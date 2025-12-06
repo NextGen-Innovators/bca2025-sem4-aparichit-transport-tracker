@@ -10,11 +10,9 @@ import {
   sendPasswordResetEmail as firebaseSendPasswordReset,
   type UserCredential,
 } from 'firebase/auth';
-import { getFirestore, type Firestore, enableIndexedDbPersistence } from 'firebase/firestore';
 // Client-side Firebase
 let firebaseApp: FirebaseApp | undefined;
 let firebaseAuth: Auth | undefined;
-let firebaseDb: Firestore | undefined;
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 
 export const getFirebaseApp = (): FirebaseApp => {
@@ -60,29 +58,6 @@ export const getFirebaseAuth = (): Auth => {
     firebaseAuth = getAuth(app);
   }
   return firebaseAuth;
-};
-
-export const getFirestoreDb = (): Firestore => {
-  if (!firebaseDb) {
-    const app = getFirebaseApp();
-    firebaseDb = getFirestore(app);
-
-    // Enable offline persistence
-    if (typeof window !== 'undefined') {
-      enableIndexedDbPersistence(firebaseDb).catch((err) => {
-        if (err.code === 'failed-precondition') {
-          // Multiple tabs open, persistence can only be enabled in one tab at a time.
-          console.warn('Firestore persistence failed: Multiple tabs open');
-        } else if (err.code === 'unimplemented') {
-          // The current browser doesn't support persistence
-          console.warn('Firestore persistence not supported in this browser');
-        } else {
-          console.error('Firestore persistence error:', err);
-        }
-      });
-    }
-  }
-  return firebaseDb;
 };
 
 export const getRecaptchaVerifier = async (containerId: string) => {

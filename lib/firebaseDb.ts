@@ -7,150 +7,150 @@ const getDb = () => getDatabase(getFirebaseApp());
 // --- Bus Functions ---
 
 export const subscribeToBuses = (callback: (buses: Bus[]) => void) => {
-  const db = getDb();
-  const busesRef = ref(db, 'buses');
+    const db = getDb();
+    const busesRef = ref(db, 'buses');
 
-  const unsubscribe = onValue(busesRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const busesList = Object.values(data) as Bus[];
-      callback(busesList);
-    } else {
-      callback([]);
-    }
-  });
+    const unsubscribe = onValue(busesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            const busesList = Object.values(data) as Bus[];
+            callback(busesList);
+        } else {
+            callback([]);
+        }
+    });
 
-  return unsubscribe;
+    return unsubscribe;
 };
 
 export const updateBusLocation = async (busId: string, location: Location) => {
-  const db = getDb();
-  const busRef = ref(db, `buses/${busId}`);
-  await update(busRef, {
-    currentLocation: location
-  });
+    const db = getDb();
+    const busRef = ref(db, `buses/${busId}`);
+    await update(busRef, {
+        currentLocation: location
+    });
 };
 
 export const updateBusSeatStatus = async (busId: string, online: number, offline: number) => {
-  const db = getDb();
-  const busRef = ref(db, `buses/${busId}`);
+    const db = getDb();
+    const busRef = ref(db, `buses/${busId}`);
 
-  // Get capacity first to calculate available
-  const snapshot = await get(busRef);
-  const bus = snapshot.val() as Bus;
+    // Get capacity first to calculate available
+    const snapshot = await get(busRef);
+    const bus = snapshot.val() as Bus;
 
-  if (bus) {
-    const available = Math.max(0, bus.capacity - online - offline);
-    await update(busRef, {
-      onlineBookedSeats: online,
-      offlineOccupiedSeats: offline,
-      availableSeats: available,
-      lastSeatUpdate: new Date().toISOString()
-    });
-  }
+    if (bus) {
+        const available = Math.max(0, bus.capacity - online - offline);
+        await update(busRef, {
+            onlineBookedSeats: online,
+            offlineOccupiedSeats: offline,
+            availableSeats: available,
+            lastSeatUpdate: new Date().toISOString()
+        });
+    }
 };
 
 // --- Booking Functions ---
 
 export const createBooking = async (booking: Omit<Booking, 'id'>) => {
-  const db = getDb();
-  const bookingsRef = ref(db, 'bookings');
-  const newBookingRef = push(bookingsRef);
+    const db = getDb();
+    const bookingsRef = ref(db, 'bookings');
+    const newBookingRef = push(bookingsRef);
 
-  const newBooking = {
-    ...booking,
-    id: newBookingRef.key,
-    timestamp: new Date().toISOString()
-  };
+    const newBooking = {
+        ...booking,
+        id: newBookingRef.key,
+        timestamp: new Date().toISOString()
+    };
 
-  await set(newBookingRef, newBooking);
-  return newBooking;
+    await set(newBookingRef, newBooking);
+    return newBooking;
 };
 
 export const subscribeToBookings = (
-  id: string,
-  role: 'driver' | 'passenger',
-  callback: (bookings: Booking[]) => void
+    id: string,
+    role: 'driver' | 'passenger',
+    callback: (bookings: Booking[]) => void
 ) => {
-  const db = getDb();
-  const bookingsRef = ref(db, 'bookings');
+    const db = getDb();
+    const bookingsRef = ref(db, 'bookings');
 
-  const unsubscribe = onValue(bookingsRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const allBookings = Object.values(data) as Booking[];
-      // Filter based on role
-      const filtered = allBookings.filter((b) => {
-        if (role === 'passenger') {
-          // id = passengerId
-          return b.passengerId === id;
+    const unsubscribe = onValue(bookingsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            const allBookings = Object.values(data) as Booking[];
+            // Filter based on role
+            const filtered = allBookings.filter((b) => {
+                if (role === 'passenger') {
+                    // id = passengerId
+                    return b.passengerId === id;
+                }
+                // role === 'driver' -> id = busId
+                return b.busId === id;
+            });
+            callback(filtered);
+        } else {
+            callback([]);
         }
-        // role === 'driver' -> id = busId
-        return b.busId === id;
-      });
-      callback(filtered);
-    } else {
-      callback([]);
-    }
-  });
+    });
 
-  return unsubscribe;
+    return unsubscribe;
 };
 
 // --- User Profile Functions ---
 
 export const createUserProfile = async (userId: string, userData: any) => {
-  const db = getDb();
-  const userRef = ref(db, `users/${userId}`);
-  await set(userRef, {
-    ...userData,
-    id: userId,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
+    const db = getDb();
+    const userRef = ref(db, `users/${userId}`);
+    await set(userRef, {
+        ...userData,
+        id: userId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    });
 };
 
 export const getUserProfile = async (userId: string) => {
-  const db = getDb();
-  const userRef = ref(db, `users/${userId}`);
-  const snapshot = await get(userRef);
-  return snapshot.exists() ? snapshot.val() : null;
+    const db = getDb();
+    const userRef = ref(db, `users/${userId}`);
+    const snapshot = await get(userRef);
+    return snapshot.exists() ? snapshot.val() : null;
 };
 
 export const updateUserProfile = async (userId: string, updates: any) => {
-  const db = getDb();
-  const userRef = ref(db, `users/${userId}`);
-  await update(userRef, {
-    ...updates,
-    updatedAt: new Date().toISOString()
-  });
+    const db = getDb();
+    const userRef = ref(db, `users/${userId}`);
+    await update(userRef, {
+        ...updates,
+        updatedAt: new Date().toISOString()
+    });
 };
 
 export const subscribeToUserProfile = (userId: string, callback: (userData: any) => void) => {
-  const db = getDb();
-  const userRef = ref(db, `users/${userId}`);
+    const db = getDb();
+    const userRef = ref(db, `users/${userId}`);
 
-  const unsubscribe = onValue(userRef, (snapshot) => {
-    const data = snapshot.val();
-    callback(data || null);
-  });
+    const unsubscribe = onValue(userRef, (snapshot) => {
+        const data = snapshot.val();
+        callback(data || null);
+    });
 
-  return unsubscribe;
+    return unsubscribe;
 };
 
 // --- Seed Data (for demo) ---
 export const seedInitialData = async (buses: Bus[]) => {
-  const db = getDb();
-  const busesRef = ref(db, 'buses');
+    const db = getDb();
+    const busesRef = ref(db, 'buses');
 
-  // Check if data exists
-  const snapshot = await get(busesRef);
-  if (!snapshot.exists()) {
-    const updates: Record<string, any> = {};
-    buses.forEach(bus => {
-      updates[bus.id] = bus;
-    });
-    await update(busesRef, updates);
-    console.log('Seeded initial bus data');
-  }
+    // Check if data exists
+    const snapshot = await get(busesRef);
+    if (!snapshot.exists()) {
+        const updates: Record<string, any> = {};
+        buses.forEach(bus => {
+            updates[bus.id] = bus;
+        });
+        await update(busesRef, updates);
+        console.log('Seeded initial bus data');
+    }
 };

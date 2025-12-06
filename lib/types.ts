@@ -29,6 +29,8 @@ export interface PassengerUser extends User {
   emergencyContact?: string;
 }
 
+export type UserProfile = Driver | PassengerUser;
+
 export type VehicleTypeId = 'bus' | 'others' | 'taxi' | 'bike';
 
 export interface VehicleType {
