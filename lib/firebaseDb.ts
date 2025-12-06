@@ -97,6 +97,47 @@ export const subscribeToBookings = (
   return unsubscribe;
 };
 
+// --- User Profile Functions ---
+
+export const createUserProfile = async (userId: string, userData: any) => {
+  const db = getDb();
+  const userRef = ref(db, `users/${userId}`);
+  await set(userRef, {
+    ...userData,
+    id: userId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+};
+
+export const getUserProfile = async (userId: string) => {
+  const db = getDb();
+  const userRef = ref(db, `users/${userId}`);
+  const snapshot = await get(userRef);
+  return snapshot.exists() ? snapshot.val() : null;
+};
+
+export const updateUserProfile = async (userId: string, updates: any) => {
+  const db = getDb();
+  const userRef = ref(db, `users/${userId}`);
+  await update(userRef, {
+    ...updates,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+export const subscribeToUserProfile = (userId: string, callback: (userData: any) => void) => {
+  const db = getDb();
+  const userRef = ref(db, `users/${userId}`);
+
+  const unsubscribe = onValue(userRef, (snapshot) => {
+    const data = snapshot.val();
+    callback(data || null);
+  });
+
+  return unsubscribe;
+};
+
 // --- Seed Data (for demo) ---
 export const seedInitialData = async (buses: Bus[]) => {
   const db = getDb();
