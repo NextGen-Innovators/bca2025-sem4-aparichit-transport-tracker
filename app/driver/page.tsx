@@ -13,17 +13,19 @@ import {
   Navigation,
   Users,
   MapPin,
-  Settings
+  Settings,
+  Bus as BusIcon
 } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { subscribeToBuses, subscribeToBookings, updateBusLocation } from '@/lib/firebaseDb';
 import { addOfflinePassenger, removeOfflinePassenger } from '@/lib/seatManagement';
-import { toast } from 'sonner';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function DriverDashboard() {
   const router = useRouter();
   const { currentUser, role, loading, signOut, userData } = useAuth();
+  const { toast } = useToast();
   const [buses, setBuses] = useState<Bus[]>([]);
   const [passengers, setPassengers] = useState<Passenger[]>([]);
   const [selectedBus, setSelectedBus] = useState<Bus | null>(null);
@@ -42,8 +44,8 @@ export default function DriverDashboard() {
       // Try to find the driver's specific bus
       const driverBus =
         busesData.find((b) => b.id === currentUser?.uid) ||
-        (userData?.vehicleNumber
-          ? busesData.find((b) => b.busNumber === userData.vehicleNumber)
+        (userData?.role === 'driver' && (userData as any).vehicleNumber
+          ? busesData.find((b) => b.busNumber === (userData as any).vehicleNumber)
           : undefined);
 
       // Only update selectedBus if we found the driver's bus
@@ -92,9 +94,11 @@ export default function DriverDashboard() {
 
     if (!navigator.geolocation) {
       if (!hasGeolocationError) {
-        toast('Location unavailable', {
+        toast({
+          title: 'Location unavailable',
           description: 'Geolocation is not supported by this browser.',
-        })
+          variant: 'destructive',
+        });
         setHasGeolocationError(true);
       }
       return;
@@ -108,8 +112,10 @@ export default function DriverDashboard() {
           message = 'Location permission was denied. Turn it on in your browser settings to share your live location.';
         }
 
-        toast('Location error', {
+        toast({
+          title: 'Location error',
           description: message,
+          variant: 'destructive',
         });
         setHasGeolocationError(true);
       }
@@ -135,13 +141,18 @@ export default function DriverDashboard() {
           if (selectedBus && isOnline) {
             updateBusLocation(selectedBus.id, {
               ...newLocation,
-              timestamp: new Date(),
+              timestamp: new Date()
             });
           }
         },
         handleGeoError,
-        { enableHighAccuracy: true, maximumAge: 5000 }
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 10000
+        }
       );
+
 
       return () => navigator.geolocation.clearWatch(watchId);
     }
@@ -163,10 +174,12 @@ export default function DriverDashboard() {
       await addOfflinePassenger(selectedBus.id);
     } catch (error) {
       console.error('Error adding offline passenger:', error);
-      toast("Failed to add offline passenger", {
+      toast({
+        title: 'Failed to add offline passenger',
         description:
           error instanceof Error ? error.message : 'Please try again or check your connection.',
-      })
+        variant: 'destructive',
+      });
     }
   };
 
@@ -206,7 +219,7 @@ export default function DriverDashboard() {
         router.replace('/auth?redirect=/driver');
       } else if (role && role !== 'driver') {
         router.replace('/passenger');
-      } else if (!userData || !userData.vehicleNumber) {
+      } else if (!userData || !(userData as any).vehicleNumber) {
         // Profile incomplete (missing vehicle details) or not loaded
         router.replace('/auth/profile');
       }
@@ -215,186 +228,119 @@ export default function DriverDashboard() {
 
   if (loading || !currentUser || (role && role !== 'driver')) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-600 text-sm">Loading driver dashboard...</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <div className="absolute inset-0 bg-cyan-500/20 rounded-full animate-ping"></div>
+            <div className="relative bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl w-full h-full flex items-center justify-center shadow-2xl shadow-cyan-500/50">
+              <BusIcon className="w-10 h-10 text-white animate-pulse" />
+            </div>
+          </div>
+          <p className="text-slate-400 text-lg font-medium">Initializing Command Center...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-950 flex flex-col">
+      {/* 1. Header (Sticky Top) */}
+      <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800 p-4">
+        <div className="flex items-center justify-between">
+          {/* Brand */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+              <BusIcon className="w-4 h-4 text-white" />
+            </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Bus Driver Dashboard</h1>
-              <p className="text-gray-600">Real-time passenger tracking and management</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Badge variant={isOnline ? 'default' : 'secondary'}>
+              <h1 className="text-sm font-black text-white tracking-tight leading-none">
+                Driver Console
+              </h1>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></span>
+                <span className="text-[10px] text-slate-300 font-medium">
                   {isOnline ? 'Online' : 'Offline'}
-                </Badge>
-                <Switch
-                  checked={isOnline}
-                  onCheckedChange={setIsOnline}
-                />
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={locationEnabled ? 'default' : 'secondary'}>
-                  <MapPin className="w-3 h-3 mr-1" />
-                  {locationEnabled ? 'Sharing' : 'Hidden'}
-                </Badge>
-                <Switch
-                  checked={locationEnabled}
-                  onCheckedChange={handleLocationToggle}
-                />
-              </div>
-              {process.env.NODE_ENV === 'development' && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/seed', { method: 'POST' });
-                        const data = await res.json();
-                        alert(data.message || 'Seeded demo data');
-                      } catch (e) {
-                        console.error(e);
-                        alert('Failed to seed demo data');
-                      }
-                    }}
-                  >
-                    Seed Demo Data
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/seed', { method: 'DELETE' });
-                        const data = await res.json();
-                        alert(data.message || 'Cleared demo data');
-                      } catch (e) {
-                        console.error(e);
-                        alert('Failed to clear demo data');
-                      }
-                    }}
-                  >
-                    Clear Demo
-                  </Button>
-                </div>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={signOut}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-              >
-                Sign Out
-              </Button>
             </div>
           </div>
-        </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Passengers</p>
-                  <h3 className="text-2xl font-bold">{passengers.length}</h3>
-                </div>
-                <Users className="w-8 h-8 text-blue-500" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Active Buses</p>
-                  <h3 className="text-2xl font-bold">
-                    {buses.filter(b => b.isActive).length}
-                  </h3>
-                </div>
-                <Navigation className="w-8 h-8 text-green-500" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Available Seats</p>
-                  <h3 className="text-2xl font-bold">
-                    {buses.reduce((acc, bus) => acc + (bus.availableSeats || 0), 0)}
-                  </h3>
-                </div>
-                <Users className="w-8 h-8 text-purple-500" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Your Bus</p>
-                  <h3 className="text-lg font-bold">{selectedBus?.busNumber || 'N/A'}</h3>
-                </div>
-                <Settings className="w-8 h-8 text-yellow-500" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Map Section */}
-          <div className="lg:col-span-2">
-            <Card className="h-[600px]">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Navigation className="w-5 h-5" />
-                  Live Bus Tracking Map
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 h-[calc(600px-80px)]">
-                <MapWrapper
-                  role="driver"
-                  buses={buses}
-                  passengers={passengers}
-                  selectedBus={selectedBus}
-                  onBusSelect={setSelectedBus}
-                  showRoute={true}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Panel */}
-          <div className="space-y-6">
-            {selectedBus && (
-              <DriverPanel
-                bus={selectedBus}
-                onLocationToggle={handleLocationToggle}
-                locationEnabled={locationEnabled}
-                onAddOfflinePassenger={handleAddOfflinePassenger}
-                onRemoveOfflinePassenger={handleRemoveOfflinePassenger}
+          {/* Controls */}
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all ${locationEnabled
+              ? 'bg-cyan-500/10 border-cyan-500/30'
+              : 'bg-slate-900/50 border-slate-700/50'}`}>
+              <Switch
+                checked={locationEnabled}
+                onCheckedChange={handleLocationToggle}
+                className="scale-75 data-[state=checked]:bg-cyan-500"
               />
-            )}
+              <MapPin className={`w-3 h-3 ${locationEnabled ? 'text-cyan-400' : 'text-slate-400'}`} />
+            </div>
 
-            <PassengerList
-              passengers={passengers}
-              selectedBus={selectedBus}
-              onPassengerPickup={handlePassengerPickup}
-              onPassengerDropoff={handlePassengerDropoff}
+            <Button
+              variant="ghost"
+              onClick={signOut}
+              size="icon"
+              className="w-9 h-9 rounded-full bg-slate-900/50 border border-slate-700/50 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            >
+              <span className="sr-only">Sign Out</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Map Section (Priority View) */}
+      <div className="relative w-full h-[60vh] shrink-0 border-b border-slate-800">
+        <MapWrapper
+          role="driver"
+          buses={buses}
+          passengers={passengers}
+          selectedBus={selectedBus}
+          onBusSelect={setSelectedBus}
+          showRoute={true}
+        />
+      </div>
+
+      {/* 3. Scrollable Content (Below Map) */}
+      <div className="flex-1 bg-slate-950 p-4 space-y-6">
+        {/* Bus Details & Controls */}
+        {selectedBus && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Settings className="w-5 h-5 text-cyan-400" />
+              Bus Controls
+            </h2>
+            <DriverPanel
+              bus={selectedBus}
+              onLocationToggle={handleLocationToggle}
+              locationEnabled={locationEnabled}
+              onAddOfflinePassenger={handleAddOfflinePassenger}
+              onRemoveOfflinePassenger={handleRemoveOfflinePassenger}
             />
           </div>
+        )}
+
+        {/* Passenger List */}
+        <div className="space-y-2">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-purple-400" />
+            Passengers
+            <Badge variant="secondary" className="ml-auto bg-slate-800 text-slate-300">
+              {passengers.length}
+            </Badge>
+          </h2>
+          <PassengerList
+            passengers={passengers}
+            selectedBus={selectedBus}
+            onPassengerPickup={handlePassengerPickup}
+            onPassengerDropoff={handlePassengerDropoff}
+          />
         </div>
+
+        {/* Bottom Padding */}
+        <div className="h-8"></div>
       </div>
     </div>
   );
