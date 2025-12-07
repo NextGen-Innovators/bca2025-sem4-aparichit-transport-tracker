@@ -1,109 +1,101 @@
+// Basic Location interface from frontend components
 export interface Location {
   lat: number;
   lng: number;
+  name?: string;
   address?: string;
-  timestamp: Date;
+  timestamp?: Date | string;
 }
 
-export type UserRole = 'driver' | 'passenger';
+export type UserRole = 'admin' | 'driver' | 'passenger';
 
 export interface User {
-  id: string;
-  phone: string;
-  name: string;
-  email?: string;
+  id: number;
+  user_name: string;
+  email: string;
   role: UserRole;
-  createdAt: Date;
+  created_at: string;
 }
 
-export interface Driver extends User {
-  vehicleType: VehicleTypeId;
-  vehicleNumber: string;
+export interface Vehicle {
+  id: number;
+  plate_number: string;
+  make: string;
+  model: string;
+  year: number;
   capacity: number;
-  licenseNumber: string;
-  isApproved: boolean;
-  rating?: number;
+  status: 'active' | 'maintenance' | 'inactive';
+  driver_id?: number | null;
+  proposed_by_driver_id?: number;
+  approved: number; // 0 or 1
+  approved_at?: string;
+  approved_by_admin_id?: number;
+  created_at: string;
+  // Joins
+  driver_name?: string;
+  proposed_by_driver_name?: string;
+  approved_by_admin_name?: string;
 }
 
-export interface PassengerUser extends User {
-  emergencyContact?: string;
+export interface Route {
+  id: number;
+  route_name: string;
+  start_location_name: string;
+  start_location_lat: number;
+  start_location_lng: number;
+  end_location_name: string;
+  end_location_lat: number;
+  end_location_lng: number;
+  distance: number;
+  estimated_time: number;
+  approved: number; // 0 or 1
+  created_at: string;
+  approved_at?: string;
+  approved_by_admin_id?: number;
+  proposed_by_driver_id?: number;
+  // Joins
+  proposed_by_driver_name?: string;
 }
 
-export type UserProfile = Driver | PassengerUser;
-
-export type VehicleTypeId = 'bus' | 'others' | 'taxi' | 'bike';
-
-export interface VehicleType {
-  id: VehicleTypeId;
-  name: string;
-  icon: string;
-  capacity: number;
-  fareMultiplier: number;
-  color: string;
-}
-
-export interface Bus {
-  id: string;
-  driverName: string;
-  busNumber: string;
-  route: string;
-  currentLocation: Location;
-  destination: Location;
-  passengers: Passenger[];
-  capacity: number;
-  isActive: boolean;
-  emoji: string;
-  vehicleType: VehicleTypeId;
-  // Seat management fields
-  onlineBookedSeats: number;      // Seats booked via app
-  offlineOccupiedSeats: number;   // Manually tracked by driver
-  availableSeats: number;          // Calculated: capacity - online - offline
-  lastSeatUpdate: Date;            // For showing "Updated Xs ago"
-  // Additional fields
-  onlineBooked?: number;           // Alias for onlineBookedSeats
-  offlineBooked?: number;          // Alias for offlineOccupiedSeats
-  driverImage?: string;            // Base64 or URL
-  vehicleImage?: string;           // Base64 or URL
-}
-
-export interface Passenger {
-  id: string;
-  name: string;
-  pickupLocation: Location;
-  dropoffLocation: Location;
-  status: 'waiting' | 'picked' | 'dropped';
-  bookingTime: Date;
+export interface Trip {
+  id: number;
+  route_id: number;
+  vehicle_id: number;
+  driver_id: number;
+  departure_time: string;
+  arrival_time: string;
+  status: 'scheduled' | 'on_route' | 'completed' | 'cancelled';
+  fare: number;
+  available_seats: number;
+  created_at: string;
+  // Joins
+  route_name?: string;
+  start_location_name?: string;
+  end_location_name?: string;
+  route_approved?: number;
+  plate_number?: string;
+  driver_name?: string;
+  current_location?: Location;
 }
 
 export interface Booking {
-  id: string;
-  passengerId: string;
-  busId: string;
-  passengerName: string;
-  phoneNumber: string;
-  email?: string;
-  numberOfPassengers: number;
-  pickupLocation: LocationWithTimestamp;
-  dropoffLocation: LocationWithTimestamp;
-  fare: number;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'expired';
-  timestamp: Date;
-  notes?: string;
-  paymentMethod?: 'cash' | 'digital';
-  // Booking timeout fields
-  reservationExpiresAt?: Date;     // 10-minute timeout
-  isExpired: boolean;
-}
-
-export interface LocationWithTimestamp {
-  lat: number;
-  lng: number;
-  address?: string;
-  timestamp: Date;
-}
-
-export interface RouteStop {
-  name: string;
-  location: Location;
-  order: number;
+  id: number;
+  trip_id: number;
+  passenger_id: number;
+  seat_number: number;
+  booking_date: string;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  total_amount: number;
+  pickup_location_lat: number;
+  pickup_location_lng: number;
+  dropoff_location_lat: number;
+  dropoff_location_lng: number;
+  // Joins
+  passenger_name?: string;
+  departure_time?: string;
+  arrival_time?: string;
+  route_name?: string;
+  start_location_name?: string;
+  end_location_name?: string;
+  plate_number?: string;
 }

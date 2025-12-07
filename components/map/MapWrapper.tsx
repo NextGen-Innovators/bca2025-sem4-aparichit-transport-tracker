@@ -18,19 +18,13 @@ const LeafletMap = dynamic(() => import('./LeafletMap'), {
 });
 
 interface MapWrapperProps {
-    role: 'driver' | 'passenger';
-    buses: any[];
-    passengers?: any[];
-    selectedBus?: any;
-    onBusSelect?: (bus: any) => void;
+    role: 'driver' | 'passenger' | 'admin';
+    trips: any[];
+    bookings?: any[];
+    selectedTrip?: any;
+    onTripSelect?: (trip: any) => void;
     onLocationSelect?: (location: { lat: number; lng: number }) => void;
-    showRoute?: boolean;
-    pickupLocation?: { lat: number; lng: number; address?: string } | null;
-    dropoffLocation?: { lat: number; lng: number; address?: string } | null;
     userLocation?: { lat: number; lng: number } | null;
-    pickupProximityLevel?: 'far' | 'approaching' | 'nearby' | 'arrived' | null;
-    busETAs?: Record<string, number | null>;
-    busLocations?: Record<string, { lat: number; lng: number; timestamp: string; heading?: number; speed?: number }>;
 }
 
 export default function MapWrapper(props: MapWrapperProps) {

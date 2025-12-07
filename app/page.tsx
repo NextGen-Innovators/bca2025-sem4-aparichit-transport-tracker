@@ -8,7 +8,7 @@ import { BusFront, Users, MapPin, Clock, Navigation, Smartphone, ArrowRight, Zap
 import { useAuth } from '@/lib/contexts/AuthContext';
 
 export default function Home() {
-  const { currentUser, signOut } = useAuth();
+  const { user, logout } = useAuth();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -16,9 +16,9 @@ export default function Home() {
   }, []);
 
   const handleRoleSwitch = async (role: 'driver' | 'passenger') => {
-    if (currentUser) {
+    if (user) {
       // Sign out first, then redirect to auth with the new role
-      await signOut();
+      await logout();
       window.location.href = `/auth?role=${role}&switch_role=true`;
     }
   };
@@ -64,7 +64,7 @@ export default function Home() {
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-5 justify-center items-center mb-20">
-            {isClient && currentUser ? (
+            {isClient && user ? (
               <>
                 <Button
                   size="lg"
@@ -352,7 +352,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
-            {isClient && currentUser ? (
+            {isClient && user ? (
               <>
                 <Button
                   size="lg"

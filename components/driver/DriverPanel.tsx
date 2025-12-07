@@ -6,12 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bus } from '@/lib/types';
+// import { Bus } from '@/lib/types'; // Removed
 import { VEHICLE_TYPE_MAP } from '@/lib/constants';
 import { BusFront, MapPin, Users, Battery, Wifi, Settings, Plus, Minus } from 'lucide-react';
 
 interface DriverPanelProps {
-	bus: Bus;
+	bus: any; // Using any for now to facilitate Trip/Vehicle merger object
 	onLocationToggle: (enabled: boolean) => void;
 	locationEnabled: boolean;
 	onAddOfflinePassenger?: () => void;

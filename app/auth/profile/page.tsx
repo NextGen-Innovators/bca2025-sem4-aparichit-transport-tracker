@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Bus, User2, Loader2, Upload, Camera, MapPin, Shield, Phone, Mail, CreditCard, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,11 +19,8 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
-import { getFirebaseAuth, getFirebaseApp } from '@/lib/firebase';
-import { createUserProfile } from '@/lib/firebaseDb';
 import { VEHICLE_TYPES, DEFAULT_LOCATION } from '@/lib/constants';
 import { VehicleTypeId } from '@/lib/types';
-import { getDatabase, ref, set as rtdbSet } from 'firebase/database';
 
 const driverSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -87,7 +84,7 @@ const resizeImage = (file: File): Promise<string> => {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { currentUser, role, userData } = useAuth();
+  const { user, role, loading } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
@@ -96,23 +93,17 @@ export default function ProfilePage() {
   const [hasRedirected, setHasRedirected] = useState(false);
 
   useEffect(() => {
-    if (!currentUser) {
+    if (!loading && !user) {
       router.push('/auth');
       return;
     }
 
-    // Only redirect if profile exists AND we haven't already redirected from form submission
-    // AND we're not currently on step 1 (which means user just arrived)
-    if (userData && userData.name && !hasRedirected && !isSubmitting && currentStep !== 1) {
-      setHasRedirected(true);
-      router.replace(role === 'driver' ? '/driver' : '/passenger');
-    }
-  }, [currentUser, userData, role, router, hasRedirected, isSubmitting, currentStep]);
+  }, [user, loading, router]);
 
   const driverForm = useForm<DriverFormData>({
     resolver: zodResolver(driverSchema),
     defaultValues: {
-      name: '',
+      name: user?.name || '',
       vehicleType: 'bus',
       vehicleNumber: '',
       licenseNumber: '',
@@ -124,211 +115,101 @@ export default function ProfilePage() {
   const passengerForm = useForm<PassengerFormData>({
     resolver: zodResolver(passengerSchema),
     defaultValues: {
-      name: '',
-      email: '',
+      name: user?.name || '',
+      email: user?.email || '',
       emergencyContact: '',
     },
   });
+
+  // Set default values when user is loaded
+  useEffect(() => {
+    if (user) {
+      if (role === 'driver') {
+        driverForm.setValue('name', user.name);
+      } else {
+        passengerForm.setValue('name', user.name);
+        passengerForm.setValue('email', user.email);
+      }
+    }
+  }, [user, role, driverForm, passengerForm]);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, field: 'profileImage' | 'vehicleImage') => {
     const file = e.target.files?.[0];
     if (file) {
       try {
         if (file.size > 5 * 1024 * 1024) {
-          toast({
-            variant: 'destructive',
-            title: 'File too large',
-            description: 'Image must be less than 5MB',
-          });
+          toast({ variant: 'destructive', title: 'File too large', description: 'Image must be less than 5MB' });
           return;
         }
 
         const resized = await resizeImage(file);
         driverForm.setValue(field, resized);
 
-        if (field === 'profileImage') {
-          setProfilePreview(resized);
-        } else {
-          setVehiclePreview(resized);
-        }
+        if (field === 'profileImage') setProfilePreview(resized);
+        else setVehiclePreview(resized);
       } catch (err) {
-        console.error('Error processing image:', err);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to process image. Please try another one.',
-        });
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to process image.' });
       }
     }
   };
 
   const handleDriverSubmit = async (data: DriverFormData) => {
-    if (!currentUser || role !== 'driver') return;
+    if (!user || role !== 'driver') return;
 
     try {
       setIsSubmitting(true);
-
       const vehicleTypeData = VEHICLE_TYPES.find((v) => v.id === data.vehicleType);
       const capacity = vehicleTypeData?.capacity || data.capacity;
 
-      // Create user profile in Realtime Database
-      await createUserProfile(currentUser.uid, {
-        phone: currentUser.phoneNumber || '',
-        name: data.name,
-        role: 'driver',
-        vehicleType: data.vehicleType,
-        vehicleNumber: data.vehicleNumber,
-        route: data.route,
-        capacity,
-        licenseNumber: data.licenseNumber,
-        profileImage: data.profileImage || null,
-        vehicleImage: data.vehicleImage || null,
-        isApproved: false,
-      });
-
-      const idToken = await currentUser.getIdToken();
-      await fetch('/api/auth/register', {
+      const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          idToken,
           role: 'driver',
-          userData: {
-            name: data.name,
-            vehicleType: data.vehicleType,
-            vehicleNumber: data.vehicleNumber,
-            route: data.route,
-            capacity,
-            licenseNumber: data.licenseNumber,
-            profileImage: data.profileImage,
-            vehicleImage: data.vehicleImage,
-          },
+          ...data,
+          capacity
         }),
       });
 
-      // Create session cookie
-      await fetch('/api/sessionLogin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, role: 'driver' }),
-      });
+      if (!res.ok) throw new Error('Failed to update profile');
 
-      const app = getFirebaseApp();
-      const rtdb = getDatabase(app);
-      const busId = currentUser.uid;
-      const busRef = ref(rtdb, `buses/${busId}`);
-      const nowIso = new Date().toISOString();
-
-      const vehicleMeta = VEHICLE_TYPES.find((v) => v.id === data.vehicleType);
-
-      await rtdbSet(busRef, {
-        id: busId,
-        driverName: data.name,
-        driverImage: data.profileImage || null,
-        vehicleImage: data.vehicleImage || null,
-        busNumber: data.vehicleNumber,
-        route: data.route,
-        currentLocation: {
-          lat: DEFAULT_LOCATION.lat,
-          lng: DEFAULT_LOCATION.lng,
-          address: 'Starting point',
-          timestamp: nowIso,
-        },
-        destination: {
-          lat: DEFAULT_LOCATION.lat,
-          lng: DEFAULT_LOCATION.lng,
-          address: 'Destination not set',
-          timestamp: nowIso,
-        },
-        passengers: [],
-        capacity,
-        isActive: false,
-        emoji: vehicleMeta?.icon || '🚌',
-        vehicleType: data.vehicleType,
-        onlineBookedSeats: 0,
-        offlineOccupiedSeats: 0,
-        availableSeats: capacity,
-        lastSeatUpdate: nowIso,
-      });
-
-      toast({
-        title: 'Profile created!',
-        description: 'Your driver profile has been set up successfully.',
-      });
-
+      toast({ title: 'Profile created!', description: 'Your driver profile has been set up successfully.' });
       setHasRedirected(true);
-      // Force a hard navigation to ensure middleware picks up the new cookie
       window.location.href = '/driver';
     } catch (error) {
-      console.error('Error creating profile:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create profile. Please try again.',
-      });
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save profile.' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handlePassengerSubmit = async (data: PassengerFormData) => {
-    if (!currentUser || role !== 'passenger') return;
+    if (!user || role !== 'passenger') return;
 
     try {
       setIsSubmitting(true);
-
-      // Create user profile in Realtime Database
-      await createUserProfile(currentUser.uid, {
-        phone: currentUser.phoneNumber || '',
-        name: data.name,
-        email: data.email || null,
-        role: 'passenger',
-        emergencyContact: data.emergencyContact || null,
-      });
-
-      const idToken = await currentUser.getIdToken();
-      await fetch('/api/auth/register', {
+      const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          idToken,
           role: 'passenger',
-          userData: {
-            name: data.name,
-            email: data.email,
-            emergencyContact: data.emergencyContact,
-          },
+          ...data
         }),
       });
 
-      // Create session cookie
-      await fetch('/api/sessionLogin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, role: 'passenger' }),
-      });
+      if (!res.ok) throw new Error('Failed to update profile');
 
-      toast({
-        title: 'Profile created!',
-        description: 'Your passenger profile has been set up successfully.',
-      });
-
+      toast({ title: 'Profile created!', description: 'Your passenger profile has been set up successfully.' });
       setHasRedirected(true);
-      // Force a hard navigation to ensure middleware picks up the new cookie
       window.location.href = '/passenger';
     } catch (error) {
-      console.error('Error creating profile:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create profile. Please try again.',
-      });
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save profile.' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (!currentUser || !role) {
+  if (loading || !user || !role) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -794,43 +675,23 @@ export default function ProfilePage() {
                       </div>
                     </div>
 
-                    {/* Info Box */}
-                    <div className="p-6 rounded-2xl bg-cyan-500/10 border border-cyan-500/20">
-                      <div className="flex gap-4">
-                        <div className="flex-shrink-0">
-                          <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
-                            <Shield className="w-5 h-5 text-cyan-400" />
-                          </div>
-                        </div>
-                        <div>
-                          <h3 className="text-white font-semibold mb-2">Your Privacy Matters</h3>
-                          <p className="text-sm text-slate-400 leading-relaxed">
-                            Your information is encrypted and secure. We only use it to provide you with the best service.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Submit Button */}
-                    <div className="pt-2">
-                      <Button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="w-full h-16 text-lg font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSubmitting ? (
-                          <>
-                            <Loader2 className="w-6 h-6 mr-3 animate-spin" />
-                            Creating Your Profile...
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="w-6 h-6 mr-3" />
-                            Complete Passenger Profile
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full h-16 text-lg font-bold rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 shadow-2xl shadow-cyan-500/50 transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-6 h-6 mr-3 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-6 h-6 mr-3" />
+                          Complete Profile
+                        </>
+                      )}
+                    </Button>
                   </form>
                 )}
               </CardContent>
