@@ -125,9 +125,9 @@ export default function PassengerDashboard() {
           const timestamp = bus.currentLocation.timestamp instanceof Date
             ? bus.currentLocation.timestamp
             : typeof bus.currentLocation.timestamp === 'string'
-            ? new Date(bus.currentLocation.timestamp)
-            : new Date();
-          
+              ? new Date(bus.currentLocation.timestamp)
+              : new Date();
+
           return {
             ...bus,
             currentLocation: {
@@ -144,37 +144,28 @@ export default function PassengerDashboard() {
   }, []);
 
   // Subscribe to real-time location updates for each active bus
+  // We use a stable key for buses to prevent infinite loops when updating bus locations
+  const activeBusIds = buses.filter(b => b.isActive).map(b => b.id).join(',');
+
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log('[PASSENGER] Setting up location listeners for buses:', buses.map(b => ({ id: b.id, isActive: b.isActive })));
-    
+    console.log('[PASSENGER] Setting up location listeners for active buses');
+
     const unsubscribes: (() => void)[] = [];
 
     buses.forEach(bus => {
       if (bus.isActive) {
         // eslint-disable-next-line no-console
         console.log('[PASSENGER] Subscribing to bus location:', bus.id);
-        
+
         const unsubscribe = subscribeToBusLocation(bus.id, (location) => {
           if (location) {
-            // eslint-disable-next-line no-console
-            console.log('[PASSENGER] ✅ Received location update:', {
-              busId: bus.id,
-              busNumber: bus.busNumber,
-              lat: location.lat,
-              lng: location.lng,
-              timestamp: location.timestamp,
-              heading: location.heading,
-              speed: location.speed,
-            });
-
             setBusLocations(prev => ({
               ...prev,
               [bus.id]: location,
             }));
 
             // Calculate ETA only if user location is available AND this is the selected bus
-            // ETA should only be shown after passenger selects a vehicle
             if (userLocation && selectedBus && selectedBus.id === bus.id) {
               const eta = calculateETA(
                 { lat: location.lat, lng: location.lng },
@@ -185,32 +176,7 @@ export default function PassengerDashboard() {
                 ...prev,
                 [bus.id]: eta,
               }));
-              
-              // eslint-disable-next-line no-console
-              console.log('[PASSENGER] ETA calculated:', {
-                busId: bus.id,
-                eta,
-                distance: formatDistance({ lat: location.lat, lng: location.lng }, userLocation),
-              });
-            } else {
-              // Clear ETA if bus is not selected
-              if (selectedBus && selectedBus.id !== bus.id) {
-                setBusETAs(prev => {
-                  const updated = { ...prev };
-                  delete updated[bus.id];
-                  return updated;
-                });
-              }
-              // eslint-disable-next-line no-console
-              console.log('[PASSENGER] ⚠️ ETA not calculated:', {
-                hasUserLocation: !!userLocation,
-                hasSelectedBus: !!selectedBus,
-                isSelectedBus: selectedBus?.id === bus.id,
-              });
             }
-          } else {
-            // eslint-disable-next-line no-console
-            console.log('[PASSENGER] ⚠️ Received null location for bus:', bus.id);
           }
         });
         unsubscribes.push(unsubscribe);
@@ -222,7 +188,9 @@ export default function PassengerDashboard() {
       console.log('[PASSENGER] Cleaning up location listeners');
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [buses, userLocation, selectedBus]);
+    // Only re-subscribe if the set of active buses changes, or if userLocation/selectedBus changes (for ETA)
+    // We intentionally omit 'buses' to avoid the infinite loop caused by setBuses updating the dependency
+  }, [activeBusIds, userLocation, selectedBus?.id]);
 
   // Update bus locations in buses array when real-time updates arrive
   useEffect(() => {
@@ -235,8 +203,8 @@ export default function PassengerDashboard() {
           // Only update if location actually changed
           const currentLat = bus.currentLocation.lat;
           const currentLng = bus.currentLocation.lng;
-          if (Math.abs(currentLat - locationUpdate.lat) > 0.00001 || 
-              Math.abs(currentLng - locationUpdate.lng) > 0.00001) {
+          if (Math.abs(currentLat - locationUpdate.lat) > 0.00001 ||
+            Math.abs(currentLng - locationUpdate.lng) > 0.00001) {
             return {
               ...bus,
               currentLocation: {
@@ -439,14 +407,17 @@ export default function PassengerDashboard() {
   ]);
 
   const handleBookBus = async (bus: Bus, bookingData?: any) => {
-    if (!pickupLocation || !dropoffLocation) {
+    if (!pickupLocation) {
       toast({
-        title: 'Select locations first',
-        description: 'Please select pickup and dropoff locations on the map.',
+        title: 'Select pickup location first',
+        description: 'Please select pickup location on the map or use your current location.',
         variant: 'destructive',
       });
       return;
     }
+
+    // For hailing, use pickup location as dropoff if not set
+    const finalDropoffLocation = dropoffLocation || pickupLocation;
 
     // Check if bus can accommodate the booking
     const numberOfPassengers = bookingData?.numberOfPassengers || 1;
@@ -478,13 +449,14 @@ export default function PassengerDashboard() {
               address: pickupLocation.address || 'Pickup Location',
             },
             dropoffLocation: {
-              ...dropoffLocation,
-              address: dropoffLocation.address || 'Dropoff Location',
+              ...finalDropoffLocation,
+              address: finalDropoffLocation.address || (dropoffLocation ? 'Dropoff Location' : 'Same as Pickup'),
             },
             numberOfPassengers,
             notes: bookingData?.notes || '',
             paymentMethod: bookingData?.paymentMethod || 'cash',
             vehicleType: bus.vehicleType,
+            status: bookingData?.status || 'pending',
           },
         }),
       });

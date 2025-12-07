@@ -213,7 +213,7 @@ export default function BookingPanel({
 						{/* Optional Details Accordion */}
 						<details className="group">
 							<summary className="flex items-center justify-center gap-2 text-xs font-medium text-slate-400 cursor-pointer hover:text-white transition-colors py-2">
-								<span>Add Details / Pre-book</span>
+								<span>BOOK Now</span>
 								<div className="w-4 h-4 transition-transform group-open:rotate-180">▼</div>
 							</summary>
 							<div className="pt-4 space-y-4 border-t border-slate-800 mt-2">
@@ -225,8 +225,9 @@ export default function BookingPanel({
 											placeholder="Your Name"
 											value={passengerName}
 											onChange={(e) => setPassengerName(e.target.value)}
-											className="bg-slate-950/50 border-slate-800 text-white h-10"
+											className={`bg-slate-900/50 border-slate-800 text-white h-10 ${validationErrors.name ? 'border-red-500' : ''}`}
 										/>
+										{validationErrors.name && <p className="text-xs text-red-500">{validationErrors.name}</p>}
 									</div>
 									<div className="space-y-2">
 										<Label htmlFor="phone" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Phone</Label>
@@ -236,8 +237,9 @@ export default function BookingPanel({
 											placeholder="Phone Number"
 											value={phoneNumber}
 											onChange={(e) => setPhoneNumber(e.target.value)}
-											className="bg-slate-950/50 border-slate-800 text-white h-10"
+											className={`bg-slate-900/50 border-slate-800 text-white h-10 ${validationErrors.phone ? 'border-red-500' : ''}`}
 										/>
+										{validationErrors.phone && <p className="text-xs text-red-500">{validationErrors.phone}</p>}
 									</div>
 								</div>
 								<div className="space-y-2">
@@ -257,6 +259,14 @@ export default function BookingPanel({
 										))}
 									</div>
 								</div>
+
+								<Button
+									className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-10 mt-2"
+									onClick={() => handleBooking(false)}
+									disabled={loading || seatsUnavailable}
+								>
+									{loading ? 'Processing...' : 'Confirm Booking'}
+								</Button>
 							</div>
 						</details>
 					</div>

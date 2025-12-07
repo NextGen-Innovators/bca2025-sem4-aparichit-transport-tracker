@@ -148,7 +148,7 @@ export async function POST(request: Request) {
         timestamp: new Date(),
       },
       fare,
-      status: 'pending',
+      status: bookingData.status || 'pending',
       timestamp: new Date(),
       notes: notes || null,
       paymentMethod: paymentMethod as 'cash' | 'digital',

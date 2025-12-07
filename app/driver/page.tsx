@@ -29,13 +29,23 @@ export default function DriverDashboard() {
   const [buses, setBuses] = useState<Bus[]>([]);
   const [passengers, setPassengers] = useState<Passenger[]>([]);
   const [selectedBus, setSelectedBus] = useState<Bus | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
-  const [locationEnabled, setLocationEnabled] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
+  const [locationEnabled, setLocationEnabled] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [hasGeolocationError, setHasGeolocationError] = useState(false);
   const [lastLocationUpdate, setLastLocationUpdate] = useState<Date | null>(null);
   const [locationUpdateCount, setLocationUpdateCount] = useState(0);
   const [lastFirebaseUpdate, setLastFirebaseUpdate] = useState<Date | null>(null);
+  const [notificationPermissionRequested, setNotificationPermissionRequested] = useState(false);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default' && !notificationPermissionRequested) {
+      Notification.requestPermission().finally(() => {
+        setNotificationPermissionRequested(true);
+      });
+    }
+  }, [notificationPermissionRequested]);
 
   // Subscribe to buses from Realtime Database
   useEffect(() => {
@@ -55,6 +65,9 @@ export default function DriverDashboard() {
       // This prevents showing "Rajesh Thapa" (demo data) to a new driver
       if (driverBus) {
         setSelectedBus(driverBus);
+        // Sync online status with bus isActive
+        setIsOnline(driverBus.isActive || false);
+        setLocationEnabled(driverBus.isActive || false);
       } else if (!selectedBus && busesData.length > 0) {
         // If no bus selected yet and we can't find the driver's bus,
         // we might be in a state where the bus isn't created yet.
@@ -74,6 +87,8 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (!selectedBus) return;
 
+    let previousBookingCount = 0;
+
     const unsubscribe = subscribeToBookings(selectedBus.id, 'driver', (bookings) => {
       const mapped: Passenger[] = bookings.map((b) => ({
         id: b.id,
@@ -83,11 +98,61 @@ export default function DriverDashboard() {
         status: 'waiting',
         bookingTime: b.timestamp,
       }));
+
+      // Notify driver when new booking arrives
+      if (bookings.length > previousBookingCount && previousBookingCount > 0) {
+        const newBookings = bookings.slice(previousBookingCount);
+        newBookings.forEach((booking) => {
+          // Play notification sound using Web Audio API
+          try {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+          } catch (e) {
+            // Fallback: use browser beep
+            console.log('\u0007'); // ASCII bell character
+          }
+
+          // Show toast notification
+          toast({
+            title: 'New Booking! 🎉',
+            description: `${booking.passengerName} wants to ride. Check passenger list below.`,
+            duration: 5000,
+          });
+
+          // Vibrate if supported
+          if ('vibrate' in navigator) {
+            navigator.vibrate([200, 100, 200]);
+          }
+
+          // Request browser notification permission and show notification
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('New Booking!', {
+              body: `${booking.passengerName} wants to ride`,
+              icon: '/favicon.ico',
+              tag: `booking-${booking.id}`,
+            });
+          }
+        });
+      }
+
+      previousBookingCount = bookings.length;
       setPassengers(mapped);
     });
 
     return () => unsubscribe();
-  }, [selectedBus]);
+  }, [selectedBus, toast]);
 
   // Get user's current location with throttling and distance checks
   useEffect(() => {
@@ -155,8 +220,8 @@ export default function DriverDashboard() {
       const Δλ = (lng2 - lng1) * Math.PI / 180;
 
       const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
       return R * c;
@@ -169,7 +234,7 @@ export default function DriverDashboard() {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         };
-        
+
         // eslint-disable-next-line no-console
         console.log('[DRIVER] GPS coordinate received:', {
           lat: newLocation.lat,
@@ -178,7 +243,7 @@ export default function DriverDashboard() {
           heading: position.coords.heading,
           speed: position.coords.speed,
         });
-        
+
         setUserLocation(newLocation);
         setLastLocationUpdate(new Date());
 
@@ -266,17 +331,26 @@ export default function DriverDashboard() {
 
   const handleLocationToggle = async (enabled: boolean) => {
     setLocationEnabled(enabled);
+    setIsOnline(enabled);
+
     if (selectedBus) {
       setSelectedBus({
         ...selectedBus,
         isActive: enabled,
       });
-      
+
       // Update Firebase with location sharing status
       try {
         await updateLocationSharingStatus(selectedBus.id, enabled);
         // eslint-disable-next-line no-console
         console.log('[Driver] Location sharing', enabled ? 'enabled' : 'disabled');
+
+        toast({
+          title: enabled ? 'You are now online' : 'You are now offline',
+          description: enabled
+            ? 'Your location is being shared with passengers'
+            : 'Your location sharing has been stopped',
+        });
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('[Driver] Failed to update location sharing status:', error);
@@ -285,6 +359,9 @@ export default function DriverDashboard() {
           description: 'Failed to update location sharing status. Please try again.',
           variant: 'destructive',
         });
+        // Revert state on error
+        setLocationEnabled(!enabled);
+        setIsOnline(!enabled);
       }
     }
   };
@@ -338,11 +415,18 @@ export default function DriverDashboard() {
     if (!loading) {
       if (!currentUser) {
         router.replace('/auth?redirect=/driver');
-      } else if (role && role !== 'driver') {
+        return;
+      }
+      if (role && role !== 'driver') {
         router.replace('/passenger');
-      } else if (!userData || !(userData as any).vehicleNumber) {
-        // Profile incomplete (missing vehicle details) or not loaded
+        return;
+      }
+      // Only check for vehicleNumber if userData is loaded (not null)
+      // If userData is null but we have currentUser, it might still be loading
+      if (userData !== null && !(userData as any)?.vehicleNumber) {
+        // Profile incomplete (missing vehicle details)
         router.replace('/auth/profile');
+        return;
       }
     }
   }, [currentUser, role, loading, router, userData]);
@@ -433,6 +517,7 @@ export default function DriverDashboard() {
           selectedBus={selectedBus}
           onBusSelect={setSelectedBus}
           showRoute={true}
+          userLocation={userLocation}
         />
       </div>
 

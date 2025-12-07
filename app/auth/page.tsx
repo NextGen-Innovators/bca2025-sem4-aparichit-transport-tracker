@@ -67,6 +67,17 @@ const isFirestoreOfflineError = (err: unknown): err is FirebaseError => {
   );
 };
 
+const isProfileComplete = (data: any) => {
+  if (!data) return false;
+  if (data.role === 'driver') {
+    return !!(data.name && data.vehicleNumber && data.licenseNumber && data.route);
+  }
+  if (data.role === 'passenger') {
+    return !!(data.name);
+  }
+  return false;
+};
+
 function AuthContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -177,7 +188,7 @@ function AuthContent() {
         const user = getFirebaseAuth().currentUser;
         if (user) {
           const userData = await getUserProfile(user.uid);
-          shouldCompleteProfile = !userData;
+          shouldCompleteProfile = !userData || !isProfileComplete(userData);
         }
       } catch (firestoreErr) {
         if (isFirestoreOfflineError(firestoreErr)) {
@@ -192,7 +203,7 @@ function AuthContent() {
       }
 
       if (shouldCompleteProfile) {
-        router.push('/auth/profile');
+        router.push(`/auth/profile?role=${selectedRole}`);
         return;
       }
 
@@ -295,7 +306,7 @@ function AuthContent() {
         });
 
         // Redirect to profile page to complete setup
-        router.push('/auth/profile');
+        router.push(`/auth/profile?role=${selectedRole}`);
       } else {
         // Sign in
         userCredential = await signInWithEmail(email, password);
@@ -312,7 +323,7 @@ function AuthContent() {
         let shouldCompleteProfile = false;
         try {
           const userData = await getUserProfile(userCredential.user.uid);
-          shouldCompleteProfile = !userData;
+          shouldCompleteProfile = !userData || !isProfileComplete(userData);
         } catch (firestoreErr) {
           if (isFirestoreOfflineError(firestoreErr)) {
             console.warn('[Auth] Skipping Firestore profile check (offline).');
@@ -326,7 +337,7 @@ function AuthContent() {
         }
 
         if (shouldCompleteProfile) {
-          router.push('/auth/profile');
+          router.push(`/auth/profile?role=${selectedRole}`);
           return;
         }
 

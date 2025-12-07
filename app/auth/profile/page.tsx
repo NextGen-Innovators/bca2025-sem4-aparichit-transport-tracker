@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -85,9 +85,10 @@ const resizeImage = (file: File): Promise<string> => {
   });
 };
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const router = useRouter();
-  const { currentUser, role, userData } = useAuth();
+  const searchParams = useSearchParams();
+  const { currentUser, role, userData, setRole } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profilePreview, setProfilePreview] = useState<string | null>(null);
@@ -95,19 +96,54 @@ export default function ProfilePage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [hasRedirected, setHasRedirected] = useState(false);
 
+  // Get role from URL params as fallback (for phone auth flow)
+  const roleFromUrl = searchParams.get('role') as 'driver' | 'passenger' | null;
+  const effectiveRole = role || roleFromUrl;
+
+  // Ensure role is set from URL if not in context
+  useEffect(() => {
+    if (currentUser && !role && roleFromUrl && (roleFromUrl === 'driver' || roleFromUrl === 'passenger')) {
+      setRole(roleFromUrl);
+    }
+  }, [currentUser, role, roleFromUrl, setRole]);
+
+  // Helper to check if profile is complete based on role
+  const isProfileComplete = (data: any) => {
+    if (!data) return false;
+    if (data.role === 'driver') {
+      return !!(data.name && data.vehicleNumber && data.licenseNumber && data.route);
+    }
+    if (data.role === 'passenger') {
+      return !!(data.name);
+    }
+    return false;
+  };
+
   useEffect(() => {
     if (!currentUser) {
       router.push('/auth');
       return;
     }
 
-    // Only redirect if profile exists AND we haven't already redirected from form submission
-    // AND we're not currently on step 1 (which means user just arrived)
-    if (userData && userData.name && !hasRedirected && !isSubmitting && currentStep !== 1) {
-      setHasRedirected(true);
-      router.replace(role === 'driver' ? '/driver' : '/passenger');
+    // If user already has a profile with a different role, redirect to correct dashboard
+    if (userData && userData.role && userData.role !== effectiveRole) {
+      toast({
+        title: 'Role mismatch',
+        description: `Your account is registered as ${userData.role}. Redirecting...`,
+        variant: 'destructive',
+      });
+      router.replace(userData.role === 'driver' ? '/driver' : '/passenger');
+      return;
     }
-  }, [currentUser, userData, role, router, hasRedirected, isSubmitting, currentStep]);
+
+    // Only redirect if profile exists AND IS COMPLETE AND we haven't already redirected from form submission
+    // AND we're not currently on step 1 (which means user just arrived)
+    if (userData && isProfileComplete(userData) && !hasRedirected && !isSubmitting && currentStep !== 1) {
+      setHasRedirected(true);
+      const targetRole = userData.role || effectiveRole || role;
+      router.replace(targetRole === 'driver' ? '/driver' : '/passenger');
+    }
+  }, [currentUser, userData, role, effectiveRole, router, hasRedirected, isSubmitting, currentStep, toast]);
 
   const driverForm = useForm<DriverFormData>({
     resolver: zodResolver(driverSchema),
@@ -163,7 +199,26 @@ export default function ProfilePage() {
   };
 
   const handleDriverSubmit = async (data: DriverFormData) => {
-    if (!currentUser || role !== 'driver') return;
+    if (!currentUser) {
+      toast({
+        variant: 'destructive',
+        title: 'Not authenticated',
+        description: 'Please sign in to continue.',
+      });
+      router.push('/auth');
+      return;
+    }
+
+    // Ensure user is actually a driver
+    if (effectiveRole !== 'driver' && role !== 'driver') {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid role',
+        description: 'This form is for drivers only. Please sign up as a driver.',
+      });
+      router.push('/auth?role=driver');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -206,12 +261,22 @@ export default function ProfilePage() {
         }),
       });
 
-      // Create session cookie
-      await fetch('/api/sessionLogin', {
+      // Ensure role is set in context before creating session
+      setRole('driver');
+
+      // Create session cookie and wait for it to be set
+      const sessionResponse = await fetch('/api/sessionLogin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, role: 'driver' }),
       });
+
+      if (!sessionResponse.ok) {
+        throw new Error('Failed to create session');
+      }
+
+      // Wait a bit to ensure cookie is set
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const app = getFirebaseApp();
       const rtdb = getDatabase(app);
@@ -272,7 +337,26 @@ export default function ProfilePage() {
   };
 
   const handlePassengerSubmit = async (data: PassengerFormData) => {
-    if (!currentUser || role !== 'passenger') return;
+    if (!currentUser) {
+      toast({
+        variant: 'destructive',
+        title: 'Not authenticated',
+        description: 'Please sign in to continue.',
+      });
+      router.push('/auth');
+      return;
+    }
+
+    // Ensure user is actually a passenger
+    if (effectiveRole !== 'passenger' && role !== 'passenger') {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid role',
+        description: 'This form is for passengers only. Please sign up as a passenger.',
+      });
+      router.push('/auth?role=passenger');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -301,12 +385,22 @@ export default function ProfilePage() {
         }),
       });
 
-      // Create session cookie
-      await fetch('/api/sessionLogin', {
+      // Ensure role is set in context before creating session
+      setRole('passenger');
+
+      // Create session cookie and wait for it to be set
+      const sessionResponse = await fetch('/api/sessionLogin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken, role: 'passenger' }),
       });
+
+      if (!sessionResponse.ok) {
+        throw new Error('Failed to create session');
+      }
+
+      // Wait a bit to ensure cookie is set
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       toast({
         title: 'Profile created!',
@@ -328,7 +422,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (!currentUser || !role) {
+  if (!currentUser) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -339,7 +433,18 @@ export default function ProfilePage() {
     );
   }
 
-  const isDriver = role === 'driver';
+  // If no role is set, redirect to auth page with role selection
+  if (!effectiveRole || (effectiveRole !== 'driver' && effectiveRole !== 'passenger')) {
+    toast({
+      variant: 'destructive',
+      title: 'Role not set',
+      description: 'Please select your role to continue.',
+    });
+    router.push('/auth');
+    return null;
+  }
+
+  const isDriver = effectiveRole === 'driver';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 relative overflow-hidden">
@@ -839,5 +944,20 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-cyan-400 mx-auto mb-4" />
+          <p className="text-slate-400">Loading...</p>
+        </div>
+      </div>
+    }>
+      <ProfilePageContent />
+    </Suspense>
   );
 }

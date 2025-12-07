@@ -32,9 +32,10 @@ interface LeafletMapProps {
 }
 
 // Component to handle map center updates - only on significant changes or initial load
-function MapUpdater({ center, selectedBusId }: { center: { lat: number; lng: number }, selectedBusId?: string }) {
+function MapUpdater({ center, selectedBusId, userLocation }: { center: { lat: number; lng: number }, selectedBusId?: string, userLocation?: { lat: number; lng: number } | null }) {
     const map = useMap();
     const [lastBusId, setLastBusId] = useState<string | undefined>(undefined);
+    const [hasCenteredOnUser, setHasCenteredOnUser] = useState(false);
 
     useEffect(() => {
         // Only auto-center if the selected bus changes
@@ -44,6 +45,14 @@ function MapUpdater({ center, selectedBusId }: { center: { lat: number; lng: num
         }
     }, [center, selectedBusId, lastBusId, map]);
 
+    useEffect(() => {
+        // Auto-center on user location when it first becomes available
+        if (userLocation && !hasCenteredOnUser) {
+            map.flyTo([userLocation.lat, userLocation.lng], 16);
+            setHasCenteredOnUser(true);
+        }
+    }, [userLocation, hasCenteredOnUser, map]);
+
     return null;
 }
 
@@ -51,7 +60,7 @@ function MapUpdater({ center, selectedBusId }: { center: { lat: number; lng: num
 const createBusIcon = (emoji: string, color: string, isActive: boolean = true, heading?: number) => {
     const rotation = heading !== undefined ? `transform: rotate(${heading}deg);` : '';
     const pulseClass = isActive ? 'bus-icon-pulse' : '';
-    
+
     return L.divIcon({
         className: `custom-bus-icon cursor-pointer ${pulseClass}`,
         html: `<div style="
@@ -239,13 +248,13 @@ class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorBoundary
 }
 
 // Component to handle smooth marker updates
-function AnimatedBusMarker({ 
-    bus, 
-    onBusSelect, 
+function AnimatedBusMarker({
+    bus,
+    onBusSelect,
     busLocation,
-    busETA 
-}: { 
-    bus: Bus; 
+    busETA
+}: {
+    bus: Bus;
     onBusSelect?: (bus: Bus) => void;
     busLocation?: { lat: number; lng: number; timestamp: string; heading?: number; speed?: number };
     busETA?: number | null;
@@ -258,7 +267,7 @@ function AnimatedBusMarker({
     useEffect(() => {
         if (markerRef.current && busLocation) {
             const newLatLng = L.latLng(busLocation.lat, busLocation.lng);
-            
+
             if (!isInitialized) {
                 // First render - set position without animation
                 markerRef.current.setLatLng(newLatLng);
@@ -267,7 +276,7 @@ function AnimatedBusMarker({
                 // Subsequent updates - animate if position changed
                 const currentLatLng = markerRef.current.getLatLng();
                 const distance = currentLatLng.distanceTo(newLatLng);
-                
+
                 // Only animate if moved more than 1 meter
                 if (distance > 1) {
                     // Manual smooth animation
@@ -277,19 +286,19 @@ function AnimatedBusMarker({
                     const endLng = newLatLng.lng;
                     const duration = 1000; // 1 second
                     const startTime = Date.now();
-                    
+
                     const animate = () => {
                         const elapsed = Date.now() - startTime;
                         const progress = Math.min(elapsed / duration, 1);
-                        
+
                         // Easing function (ease-out)
                         const easeOut = 1 - Math.pow(1 - progress, 3);
-                        
+
                         const currentLat = startLat + (endLat - startLat) * easeOut;
                         const currentLng = startLng + (endLng - startLng) * easeOut;
-                        
+
                         markerRef.current?.setLatLng([currentLat, currentLng]);
-                        
+
                         if (progress < 1) {
                             requestAnimationFrame(animate);
                         } else {
@@ -297,7 +306,7 @@ function AnimatedBusMarker({
                             markerRef.current?.setLatLng(newLatLng);
                         }
                     };
-                    
+
                     requestAnimationFrame(animate);
                 } else {
                     // Small movement - just update directly
@@ -332,7 +341,7 @@ function AnimatedBusMarker({
         return createdIcon;
     }, [bus.emoji, bus.vehicleType, bus.isActive, busLocation?.heading]);
 
-    const position = busLocation 
+    const position = busLocation
         ? [busLocation.lat, busLocation.lng] as [number, number]
         : [bus.currentLocation.lat, bus.currentLocation.lng] as [number, number];
 
@@ -435,7 +444,7 @@ function LeafletMapInner({
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                <MapUpdater center={center} selectedBusId={selectedBus?.id} />
+                <MapUpdater center={center} selectedBusId={selectedBus?.id} userLocation={userLocation} />
                 <MapControls initialCenter={center} userLocation={userLocation} />
 
                 {/* User Location */}
