@@ -28,6 +28,8 @@ import { NotificationToast } from '@/components/shared/NotificationToast';
 import DetailedBookingModal from '@/components/passenger/DetailedBookingModal';
 import { subscribeToBusLocation } from '@/lib/firebaseDb';
 import { calculateETA, formatETA, formatDistance } from '@/lib/utils/etaCalculator';
+import LocationSearch from '@/components/map/LocationSearch';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function PassengerDashboard() {
   const router = useRouter();
@@ -201,18 +203,18 @@ export default function PassengerDashboard() {
         const locationUpdate = busLocations[bus.id];
         if (locationUpdate) {
           // Only update if location actually changed
-          const currentLat = bus.currentLocation.lat;
-          const currentLng = bus.currentLocation.lng;
+          const currentLat = bus.currentLocation?.lat || 0;
+          const currentLng = bus.currentLocation?.lng || 0;
           if (Math.abs(currentLat - locationUpdate.lat) > 0.00001 ||
             Math.abs(currentLng - locationUpdate.lng) > 0.00001) {
             return {
               ...bus,
               currentLocation: {
-                ...bus.currentLocation,
+                ...(bus.currentLocation || {}),
                 lat: locationUpdate.lat,
                 lng: locationUpdate.lng,
                 timestamp: new Date(locationUpdate.timestamp),
-              },
+              } as any, // Cast to avoid strict type issues with optional
             };
           }
         }
@@ -292,7 +294,7 @@ export default function PassengerDashboard() {
 
       activeBookings.forEach((booking) => {
         const bus = buses.find((b) => b.id === booking.busId && b.isActive);
-        if (!bus || !booking.pickupLocation) return;
+        if (!bus || !booking.pickupLocation || !bus.currentLocation) return;
 
         const level = checkProximity(
           bus.currentLocation,
@@ -544,15 +546,38 @@ export default function PassengerDashboard() {
 
   if (loading || !currentUser || (role && role !== 'passenger')) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative w-20 h-20 mx-auto mb-6">
-            <div className="absolute inset-0 bg-cyan-500/20 rounded-full animate-ping"></div>
-            <div className="relative bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl w-full h-full flex items-center justify-center shadow-2xl shadow-cyan-500/50">
-              <Navigation className="w-10 h-10 text-white animate-pulse" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex flex-col">
+        {/* Skeleton Header */}
+        <div className="h-16 border-b border-slate-800 bg-slate-950/80 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-8 h-8 rounded-full" />
+            <div className="space-y-1">
+              <Skeleton className="w-24 h-4" />
+              <Skeleton className="w-16 h-3" />
             </div>
           </div>
-          <p className="text-slate-400 text-lg font-medium">Locating nearby buses...</p>
+          <Skeleton className="w-9 h-9 rounded-full" />
+        </div>
+
+        {/* Skeleton Map */}
+        <div className="w-full h-[65vh] relative bg-slate-900">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className="relative w-20 h-20 mx-auto mb-6">
+                <div className="absolute inset-0 bg-cyan-500/20 rounded-full animate-ping"></div>
+                <div className="relative bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl w-full h-full flex items-center justify-center shadow-2xl shadow-cyan-500/50">
+                  <Navigation className="w-10 h-10 text-white animate-pulse" />
+                </div>
+              </div>
+              <p className="text-slate-400 text-lg font-medium">Locating nearby buses...</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Skeleton Content */}
+        <div className="flex-1 p-4 space-y-4">
+          <Skeleton className="w-32 h-6" />
+          <Skeleton className="w-full h-32 rounded-xl" />
         </div>
       </div>
     );
@@ -611,6 +636,14 @@ export default function PassengerDashboard() {
               </svg>
             </Button>
           </div>
+        </div>
+
+        {/* Search Bar (Mobile/Desktop) */}
+        <div className="mt-4 px-1">
+          <LocationSearch
+            onLocationSelect={handleLocationSelect}
+            placeholder="Search destination or pickup..."
+          />
         </div>
 
         {/* Filters Row */}

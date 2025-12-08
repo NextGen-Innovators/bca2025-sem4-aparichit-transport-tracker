@@ -18,9 +18,22 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { subscribeToBuses, subscribeToBookings, updateBusLocation, updateLocationSharingStatus } from '@/lib/firebaseDb';
+import { subscribeToBuses, subscribeToBookings, updateBusLocation, updateLocationSharingStatus, createAlert } from '@/lib/firebaseDb';
 import { addOfflinePassenger, removeOfflinePassenger } from '@/lib/seatManagement';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { AlertTriangle, Car, Wrench } from 'lucide-react';
+import { useAccidentDetection } from '@/hooks/useAccidentDetection';
+import AccidentAlert from '@/components/driver/AccidentAlert';
 
 export default function DriverDashboard() {
   const router = useRouter();
@@ -37,6 +50,28 @@ export default function DriverDashboard() {
   const [locationUpdateCount, setLocationUpdateCount] = useState(0);
   const [lastFirebaseUpdate, setLastFirebaseUpdate] = useState<Date | null>(null);
   const [notificationPermissionRequested, setNotificationPermissionRequested] = useState(false);
+  const [currentSpeed, setCurrentSpeed] = useState(0);
+
+  // Automated Accident Detection
+  const { isAccidentDetected, resetDetection, triggerManualTest } = useAccidentDetection({
+    currentLocation: userLocation ? { ...userLocation, timestamp: new Date() } : null,
+    speed: currentSpeed,
+    heading: undefined, // We could pass heading if available
+    isTracking: isOnline && locationEnabled
+  });
+
+  const handleAccidentConfirm = async () => {
+    resetDetection();
+    await handleReportEmergency('accident');
+  };
+
+  const handleAccidentCancel = () => {
+    resetDetection();
+    toast({
+      title: 'Alert Cancelled',
+      description: 'Accident alert was cancelled.',
+    });
+  };
 
   // Request notification permission on mount
   useEffect(() => {
@@ -274,7 +309,11 @@ export default function DriverDashboard() {
 
           // Add speed if available (convert m/s to km/h)
           if (position.coords.speed !== null && !isNaN(position.coords.speed)) {
-            locationData.speed = Math.round(position.coords.speed * 3.6); // Convert to km/h
+            const speedKmh = Math.round(position.coords.speed * 3.6);
+            locationData.speed = speedKmh;
+            setCurrentSpeed(speedKmh);
+          } else {
+            setCurrentSpeed(0);
           }
 
           // eslint-disable-next-line no-console
@@ -330,6 +369,19 @@ export default function DriverDashboard() {
   }, [locationEnabled, selectedBus, isOnline, toast, hasGeolocationError]);
 
   const handleLocationToggle = async (enabled: boolean) => {
+    if (!enabled && selectedBus) {
+      // Check for active passengers (online or offline)
+      const hasActivePassengers = passengers.some(p => p.status === 'waiting' || p.status === 'picked');
+      const hasOfflinePassengers = (selectedBus.offlineOccupiedSeats || 0) > 0;
+
+      if (hasActivePassengers || hasOfflinePassengers) {
+        const confirmed = window.confirm(
+          `You have ${passengers.filter(p => p.status !== 'dropped').length} online and ${selectedBus.offlineOccupiedSeats || 0} offline passengers active.\n\nGoing offline will stop tracking. Are you sure?`
+        );
+        if (!confirmed) return;
+      }
+    }
+
     setLocationEnabled(enabled);
     setIsOnline(enabled);
 
@@ -410,6 +462,47 @@ export default function DriverDashboard() {
     );
   };
 
+  const handleReportEmergency = async (type: 'accident' | 'breakdown') => {
+    if (!selectedBus || !userLocation) {
+      toast({
+        title: 'Error',
+        description: 'Cannot report emergency without active bus and location.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await createAlert({
+        busId: selectedBus.id,
+        busNumber: selectedBus.busNumber,
+        driverName: selectedBus.driverName,
+        type,
+        location: {
+          lat: userLocation.lat,
+          lng: userLocation.lng,
+          timestamp: new Date()
+        },
+        timestamp: new Date().toISOString(),
+        status: 'active'
+      });
+
+      toast({
+        title: 'Emergency Reported',
+        description: 'Admin team has been notified. Help is on the way.',
+        variant: 'destructive',
+        duration: 10000,
+      });
+    } catch (error) {
+      console.error('Failed to report emergency:', error);
+      toast({
+        title: 'Report Failed',
+        description: 'Please try again or call emergency services directly.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Auth guard
   useEffect(() => {
     if (!loading) {
@@ -472,6 +565,53 @@ export default function DriverDashboard() {
 
           {/* Controls */}
           <div className="flex items-center gap-2">
+            {/* SOS Button */}
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-9 px-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/50 animate-pulse"
+                >
+                  SOS
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-900 border-slate-800 text-white sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-red-500 flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5" />
+                    Emergency Report
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-400">
+                    This will immediately alert the admin team. Please use only in emergencies.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-2 gap-4 py-4">
+                  <Button
+                    variant="outline"
+                    className="h-24 flex flex-col gap-2 border-slate-700 hover:bg-red-950 hover:border-red-500 hover:text-red-500"
+                    onClick={() => handleReportEmergency('accident')}
+                  >
+                    <Car className="w-8 h-8" />
+                    Accident
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-24 flex flex-col gap-2 border-slate-700 hover:bg-orange-950 hover:border-orange-500 hover:text-orange-500"
+                    onClick={() => handleReportEmergency('breakdown')}
+                  >
+                    <Wrench className="w-8 h-8" />
+                    Breakdown
+                  </Button>
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="ghost" className="text-slate-400">Cancel</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border transition-all ${locationEnabled
               ? 'bg-cyan-500/10 border-cyan-500/30'
               : 'bg-slate-900/50 border-slate-700/50'}`}>
@@ -529,6 +669,15 @@ export default function DriverDashboard() {
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Settings className="w-5 h-5 text-cyan-400" />
               Bus Controls
+              {/* Dev Trigger for Accident */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6 text-[10px] text-slate-600 hover:text-red-500"
+                onClick={triggerManualTest}
+              >
+                Test Crash
+              </Button>
             </h2>
             <DriverPanel
               bus={selectedBus}
@@ -560,6 +709,12 @@ export default function DriverDashboard() {
         {/* Bottom Padding */}
         <div className="h-8"></div>
       </div>
+      {/* Automated Accident Alert Popup */}
+      <AccidentAlert
+        isOpen={isAccidentDetected}
+        onConfirm={handleAccidentConfirm}
+        onCancel={handleAccidentCancel}
+      />
     </div>
   );
 }

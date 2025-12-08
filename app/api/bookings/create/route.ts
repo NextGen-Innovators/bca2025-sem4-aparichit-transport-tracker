@@ -75,19 +75,20 @@ export async function POST(request: Request) {
     const adminApp = getAdminApp();
     const db = getDatabase(adminApp);
 
-    // Fetch bus details first to validate and get vehicleType if missing
     const busRef = db.ref(`buses/${busId}`);
-    const busSnapshot = await busRef.once('value');
-    const bus = busSnapshot.val();
 
-    if (!bus) {
+    // 1. Fetch bus first for static data (vehicleType) and initial validation
+    const busSnapshot = await busRef.once('value');
+    const initialBusData = busSnapshot.val();
+
+    if (!initialBusData) {
       return NextResponse.json(
         { error: 'Bus not found' },
         { status: 404 }
       );
     }
 
-    if (bus.isActive === false) {
+    if (initialBusData.isActive === false) {
       return NextResponse.json(
         { error: 'Bus is currently offline. Please choose another bus.' },
         { status: 409 }
@@ -95,9 +96,9 @@ export async function POST(request: Request) {
     }
 
     // Determine vehicle type: prefer request, fallback to bus data, fallback to 'bus'
-    const vehicleType = requestedVehicleType || bus.vehicleType || 'bus';
+    const vehicleType = requestedVehicleType || initialBusData.vehicleType || 'bus';
 
-    // Calculate fare
+    // 2. Calculate fare (local logic, no side effects)
     let fare = 0;
     try {
       fare = calculateFareFromLocations(
@@ -108,24 +109,46 @@ export async function POST(request: Request) {
       );
     } catch (err) {
       console.warn('Error calculating fare:', err);
-      // Fallback fare if calculation fails (e.g. invalid vehicle type)
       fare = 0;
     }
 
-    const capacity = bus.capacity || 0;
-    const currentOnline = bus.onlineBookedSeats || 0;
-    const currentOffline = bus.offlineOccupiedSeats || 0;
-    const availableSeats = Math.max(0, capacity - currentOnline - currentOffline);
+    // 3. Run Transaction to reserve seats atomically
+    const { committed, snapshot: transactionSnapshot } = await busRef.transaction((currentBus) => {
+      if (!currentBus) return null; // Should not happen if we found it above, but safety first
 
-    if (numberOfPassengers > availableSeats) {
+      // Re-check active status inside transaction to be sure
+      if (currentBus.isActive === false) return; // Abort
+
+      const capacity = currentBus.capacity || 0;
+      const online = currentBus.onlineBookedSeats || 0;
+      const offline = currentBus.offlineOccupiedSeats || 0;
+      const available = Math.max(0, capacity - online - offline);
+
+      if (numberOfPassengers > available) {
+        return; // Abort transaction if not enough seats
+      }
+
+      // Update seats
+      const newOnline = online + numberOfPassengers;
+      currentBus.onlineBookedSeats = newOnline;
+      currentBus.availableSeats = Math.max(0, capacity - newOnline - offline);
+      currentBus.lastSeatUpdate = new Date().toISOString();
+
+      return currentBus;
+    });
+
+    if (!committed) {
+      // Transaction failed (likely due to abort from lack of seats or offline)
+      // We can check transactionSnapshot to see if it was null (bus deleted) or just aborted
       return NextResponse.json(
         {
-          error: `Not enough seats available. Requested ${numberOfPassengers}, only ${availableSeats} left.`,
+          error: `Booking failed. The bus may be full, offline, or deleted. Please try again.`,
         },
         { status: 409 }
       );
     }
 
+    // 4. Create Booking Record (only if transaction succeeded)
     const bookingsRef = db.ref('bookings');
     const newBookingRef = bookingsRef.push();
 
@@ -163,14 +186,12 @@ export async function POST(request: Request) {
 
     await newBookingRef.set(bookingWithId);
 
-    // Update bus online booked seats & available seats
-    const newOnline = currentOnline + numberOfPassengers;
-    const newAvailable = Math.max(0, capacity - newOnline - currentOffline);
-
-    await busRef.update({
-      onlineBookedSeats: newOnline,
-      availableSeats: newAvailable,
-      lastSeatUpdate: new Date().toISOString(),
+    // Send SMS Notification (Fire and forget)
+    import('@/lib/utils/sms').then(({ sendSMS }) => {
+      sendSMS(
+        phoneNumber,
+        `DriveUp: Your booking for ${vehicleType} is confirmed! Ticket: ${bookingWithId.id.slice(-6)}. Total: Rs. ${fare}.`
+      ).catch(err => console.error('Failed to send SMS:', err));
     });
 
     return NextResponse.json({

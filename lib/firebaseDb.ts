@@ -19,9 +19,9 @@ export const subscribeToBuses = (callback: (buses: Bus[]) => void) => {
                     const timestamp = bus.currentLocation.timestamp instanceof Date
                         ? bus.currentLocation.timestamp
                         : typeof bus.currentLocation.timestamp === 'string'
-                        ? new Date(bus.currentLocation.timestamp)
-                        : new Date();
-                    
+                            ? new Date(bus.currentLocation.timestamp)
+                            : new Date();
+
                     return {
                         ...bus,
                         currentLocation: {
@@ -42,12 +42,13 @@ export const subscribeToBuses = (callback: (buses: Bus[]) => void) => {
 };
 
 export const updateBusLocation = async (
-    busId: string, 
+    busId: string,
     location: { lat: number; lng: number; heading?: number; speed?: number }
 ) => {
     const db = getDb();
-    const busRef = ref(db, `buses/${busId}/currentLocation`);
-    
+    // Write high-frequency updates to separate 'locations' node
+    const locationRef = ref(db, `locations/${busId}`);
+
     // Serialize location with timestamp as ISO string for Firebase
     const locationData = {
         lat: location.lat,
@@ -56,10 +57,11 @@ export const updateBusLocation = async (
         ...(location.heading !== undefined && { heading: location.heading }),
         ...(location.speed !== undefined && { speed: location.speed }),
     };
-    
-    await set(busRef, locationData);
-    
-    // Also update locationSharingEnabled flag
+
+    await set(locationRef, locationData);
+
+    // Update active status in main bus object (low frequency)
+    // We do NOT write location here anymore to save bandwidth
     const busMainRef = ref(db, `buses/${busId}`);
     await update(busMainRef, {
         locationSharingEnabled: true,
@@ -92,7 +94,8 @@ export const subscribeToBusLocation = (
     callback: (location: { lat: number; lng: number; timestamp: string; heading?: number; speed?: number } | null) => void
 ) => {
     const db = getDb();
-    const locationRef = ref(db, `buses/${busId}/currentLocation`);
+    // Listen to separate 'locations' node
+    const locationRef = ref(db, `locations/${busId}`);
 
     const unsubscribe = onValue(locationRef, (snapshot) => {
         const data = snapshot.val();
@@ -150,7 +153,7 @@ export const createBooking = async (booking: Omit<Booking, 'id'>) => {
 
 export const subscribeToBookings = (
     id: string,
-    role: 'driver' | 'passenger',
+    role: 'driver' | 'passenger' | 'admin',
     callback: (bookings: Booking[]) => void
 ) => {
     const db = getDb();
@@ -162,6 +165,7 @@ export const subscribeToBookings = (
             const allBookings = Object.values(data) as Booking[];
             // Filter based on role
             const filtered = allBookings.filter((b) => {
+                if (role === 'admin') return true;
                 if (role === 'passenger') {
                     // id = passengerId
                     return b.passengerId === id;
@@ -214,6 +218,52 @@ export const subscribeToUserProfile = (userId: string, callback: (userData: any)
     const unsubscribe = onValue(userRef, (snapshot) => {
         const data = snapshot.val();
         callback(data || null);
+    });
+
+    return unsubscribe;
+};
+
+// --- Alert Functions ---
+
+export const createAlert = async (alertData: Omit<import('./types').Alert, 'id'>) => {
+    const db = getDb();
+    const alertsRef = ref(db, 'alerts');
+    const newAlertRef = push(alertsRef);
+
+    const newAlert = {
+        ...alertData,
+        id: newAlertRef.key,
+        timestamp: new Date().toISOString(),
+        status: 'active'
+    };
+
+    await set(newAlertRef, newAlert);
+    return newAlert;
+};
+
+export const resolveAlert = async (alertId: string) => {
+    const db = getDb();
+    const alertRef = ref(db, `alerts/${alertId}`);
+    await update(alertRef, {
+        status: 'resolved',
+        resolvedAt: new Date().toISOString()
+    });
+};
+
+export const subscribeToAlerts = (callback: (alerts: import('./types').Alert[]) => void) => {
+    const db = getDb();
+    const alertsRef = ref(db, 'alerts');
+
+    const unsubscribe = onValue(alertsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            const alertsList = Object.values(data) as import('./types').Alert[];
+            // Sort by timestamp desc
+            alertsList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            callback(alertsList);
+        } else {
+            callback([]);
+        }
     });
 
     return unsubscribe;

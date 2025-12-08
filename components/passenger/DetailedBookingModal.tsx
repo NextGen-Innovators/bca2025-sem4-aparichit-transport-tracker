@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-import { Bus, Car, Bike, CreditCard, Banknote, Smartphone, CheckCircle, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Bus, Car, Bike, CreditCard, Banknote, Smartphone, CheckCircle, ArrowRight, ArrowLeft, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DESTINATIONS = [
@@ -96,9 +96,32 @@ export default function DetailedBookingModal() {
         }
 
         setLoading(false);
+        setLoading(false);
+        setStep(4); // Show QR Code
+    };
+
+    const handleClose = () => {
         setIsOpen(false);
         setStep(1);
         // Reset form...
+    };
+
+    const handleShare = async () => {
+        const shareText = `I'm traveling to ${destination} via DriveUp! Track my ride.`;
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: 'My DriveUp Trip',
+                    text: shareText,
+                    url: window.location.href,
+                });
+            } catch (err) {
+                console.error('Share failed:', err);
+            }
+        } else {
+            navigator.clipboard.writeText(shareText + ' ' + window.location.href);
+            toast.success('Trip details copied to clipboard!');
+        }
     };
 
     return (
@@ -276,6 +299,36 @@ export default function DetailedBookingModal() {
                             </div>
                         </div>
                     )}
+
+                    {/* Step 4: QR Code */}
+                    {step === 4 && (
+                        <div className="flex flex-col items-center space-y-6 animate-in zoom-in-95 duration-300 py-4">
+                            <div className="text-center space-y-2">
+                                <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <CheckCircle className="w-8 h-8 text-green-500" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white">Booking Confirmed!</h3>
+                                <p className="text-slate-400 text-sm">Your ride is scheduled.</p>
+                            </div>
+
+                            <div className="bg-white p-4 rounded-2xl shadow-xl shadow-white/5">
+                                {/* Mock Booking ID for QR */}
+                                <img
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=BOOKING-${Date.now()}-${passengerName}`}
+                                    alt="Booking QR Code"
+                                    className="w-48 h-48"
+                                />
+                            </div>
+
+                            <p className="text-center text-slate-500 text-xs max-w-[200px]">
+                                Show this QR code to the driver when boarding the vehicle.
+                            </p>
+
+                            <Button variant="outline" onClick={handleShare} className="w-full border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800">
+                                <Share2 className="w-4 h-4 mr-2" /> Share Trip Details
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="flex-row gap-2 sm:justify-between">
@@ -285,11 +338,13 @@ export default function DetailedBookingModal() {
                         </Button>
                     )}
 
-                    {step < 3 ? (
+                    {step < 3 && (
                         <Button onClick={handleNext} className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white">
                             Next Step <ArrowRight className="w-4 h-4 ml-2" />
                         </Button>
-                    ) : (
+                    )}
+
+                    {step === 3 && (
                         <Button
                             onClick={handleConfirm}
                             disabled={loading}
@@ -298,8 +353,14 @@ export default function DetailedBookingModal() {
                             {loading ? 'Processing...' : `Confirm & Pay Rs. ${calculateTotal()}`}
                         </Button>
                     )}
+
+                    {step === 4 && (
+                        <Button onClick={handleClose} className="w-full bg-slate-800 hover:bg-slate-700 text-white">
+                            Close & View Ticket
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
-        </Dialog>
+        </Dialog >
     );
 }

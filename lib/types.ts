@@ -5,7 +5,7 @@ export interface Location {
   timestamp: Date;
 }
 
-export type UserRole = 'driver' | 'passenger';
+export type UserRole = 'driver' | 'passenger' | 'admin';
 
 export interface User {
   id: string;
@@ -47,7 +47,7 @@ export interface Bus {
   driverName: string;
   busNumber: string;
   route: string;
-  currentLocation: Location;
+  currentLocation?: Location;
   destination: Location;
   passengers: Passenger[];
   capacity: number;
@@ -106,4 +106,18 @@ export interface RouteStop {
   name: string;
   location: Location;
   order: number;
+}
+
+export type AlertType = 'accident' | 'breakdown' | 'emergency';
+
+export interface Alert {
+  id: string;
+  busId: string;
+  busNumber: string;
+  driverName: string;
+  type: AlertType;
+  location: Location;
+  timestamp: string; // ISO string
+  status: 'active' | 'resolved';
+  details?: string;
 }

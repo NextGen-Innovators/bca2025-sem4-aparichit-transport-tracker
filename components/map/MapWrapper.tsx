@@ -18,7 +18,7 @@ const LeafletMap = dynamic(() => import('./LeafletMap'), {
 });
 
 interface MapWrapperProps {
-    role: 'driver' | 'passenger';
+    role: 'driver' | 'passenger' | 'admin';
     buses: any[];
     passengers?: any[];
     selectedBus?: any;

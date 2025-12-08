@@ -16,7 +16,7 @@ const DefaultIcon = L.icon({
 });
 
 interface LeafletMapProps {
-    role: 'driver' | 'passenger';
+    role: 'driver' | 'passenger' | 'admin';
     buses: Bus[];
     passengers?: Passenger[];
     selectedBus?: Bus | null;
@@ -331,19 +331,31 @@ function AnimatedBusMarker({
     }, [busLocation, bus, isInitialized]);
 
     const icon = useMemo(() => {
+        // Check if this bus has an active accident alert
+        const hasAccident = bus.currentLocation && (bus as any).hasAccident;
+
+        let color = bus.isActive ? (VEHICLE_TYPE_MAP[bus.vehicleType]?.color || '#2563eb') : '#64748b';
+
+        // Override with red if accident detected
+        if (hasAccident) {
+            color = '#ef4444'; // Red for accident
+        }
+
         const createdIcon = createBusIcon(
             bus.emoji,
-            VEHICLE_TYPE_MAP[bus.vehicleType]?.color || '#2563eb',
+            color,
             bus.isActive,
             busLocation?.heading
         );
         iconRef.current = createdIcon;
         return createdIcon;
-    }, [bus.emoji, bus.vehicleType, bus.isActive, busLocation?.heading]);
+    }, [bus.emoji, bus.vehicleType, bus.isActive, busLocation?.heading, (bus as any).hasAccident]);
 
     const position = busLocation
         ? [busLocation.lat, busLocation.lng] as [number, number]
-        : [bus.currentLocation.lat, bus.currentLocation.lng] as [number, number];
+        : (bus.currentLocation ? [bus.currentLocation.lat, bus.currentLocation.lng] as [number, number] : null);
+
+    if (!position) return null;
 
     const getLastUpdateText = () => {
         if (!busLocation?.timestamp) return '';
@@ -428,7 +440,20 @@ function LeafletMapInner({
         );
     }
 
-    const center = userLocation || (selectedBus?.currentLocation) || DEFAULT_LOCATION;
+    // Calculate center: Priority = Selected Bus > User Location > Default
+    let center = DEFAULT_LOCATION;
+    if (selectedBus) {
+        const liveLoc = busLocations[selectedBus.id];
+        if (liveLoc) {
+            center = liveLoc;
+        } else if (selectedBus.currentLocation) {
+            center = selectedBus.currentLocation;
+        } else if (userLocation) {
+            center = userLocation;
+        }
+    } else if (userLocation) {
+        center = userLocation;
+    }
 
     return (
         <div className="relative w-full h-full min-h-[400px]">
@@ -459,7 +484,7 @@ function LeafletMapInner({
                 )}
 
                 {/* Buses with smooth animation */}
-                {buses.filter(b => b.isActive).map(bus => (
+                {buses.filter(b => role === 'admin' || b.isActive).map(bus => (
                     <AnimatedBusMarker
                         key={bus.id}
                         bus={bus}
@@ -534,10 +559,10 @@ function LeafletMapInner({
                             </Popup>
                         </Marker>
                         {/* Line from Bus to Passenger */}
-                        {selectedBus && (
+                        {selectedBus && (busLocations[selectedBus.id] || selectedBus.currentLocation) && (
                             <Polyline
                                 positions={[
-                                    [selectedBus.currentLocation.lat, selectedBus.currentLocation.lng],
+                                    [(busLocations[selectedBus.id] || selectedBus.currentLocation)!.lat, (busLocations[selectedBus.id] || selectedBus.currentLocation)!.lng],
                                     [p.pickupLocation.lat, p.pickupLocation.lng]
                                 ]}
                                 pathOptions={{ color: '#f59e0b', dashArray: '10, 10', weight: 3, opacity: 0.6 }}
@@ -547,11 +572,11 @@ function LeafletMapInner({
                 ))}
 
                 {/* Route Line (Passenger View: User -> Bus) */}
-                {role === 'passenger' && selectedBus && userLocation && (
+                {role === 'passenger' && selectedBus && userLocation && (busLocations[selectedBus.id] || selectedBus.currentLocation) && (
                     <Polyline
                         positions={[
                             [userLocation.lat, userLocation.lng],
-                            [selectedBus.currentLocation.lat, selectedBus.currentLocation.lng]
+                            [(busLocations[selectedBus.id] || selectedBus.currentLocation)!.lat, (busLocations[selectedBus.id] || selectedBus.currentLocation)!.lng]
                         ]}
                         pathOptions={{ color: '#3b82f6', dashArray: '10, 10', weight: 4, opacity: 0.7 }}
                     />

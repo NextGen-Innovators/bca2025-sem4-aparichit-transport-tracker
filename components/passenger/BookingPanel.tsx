@@ -67,7 +67,7 @@ export default function BookingPanel({
 	}, [selectedBus, distanceKm, numberOfPassengers]);
 
 	const busToPickupDistance = useMemo(() => {
-		if (!selectedBus || !pickupLocation) return null;
+		if (!selectedBus || !selectedBus.currentLocation || !pickupLocation) return null;
 
 		return haversineDistance(
 			selectedBus.currentLocation.lat,
@@ -159,6 +159,17 @@ export default function BookingPanel({
 							</CardDescription>
 						</div>
 					</div>
+					{selectedBus && (
+						<Button
+							variant="ghost"
+							size="icon"
+							onClick={onReset}
+							className="h-8 w-8 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white"
+						>
+							<X className="w-4 h-4" />
+							<span className="sr-only">Cancel Selection</span>
+						</Button>
+					)}
 				</div>
 			</CardHeader>
 			<CardContent className="space-y-6 pt-6">
