@@ -8,7 +8,7 @@ import { getUserProfile, subscribeToUserProfile } from '@/lib/firebaseDb';
 import Cookies from 'js-cookie';
 import { UserProfile } from '@/lib/types';
 
-type Role = 'driver' | 'passenger' | null;
+type Role = 'driver' | 'passenger' | 'admin' | null;
 
 interface AuthContextValue {
   currentUser: User | null;
