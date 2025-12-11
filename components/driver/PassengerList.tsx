@@ -23,7 +23,7 @@ export default function PassengerList({
 }: PassengerListProps) {
 	// Calculate distance to each passenger and sort by proximity
 	const passengersWithDistance = passengers.map(p => {
-		if (!selectedBus) return { ...p, distanceToPickup: null };
+		if (!selectedBus || !selectedBus.currentLocation) return { ...p, distanceToPickup: null };
 
 		const distanceMeters = haversineDistance(
 			selectedBus.currentLocation.lat,
@@ -107,8 +107,8 @@ export default function PassengerList({
 						<div
 							key={passenger.id}
 							className={`group flex flex-col gap-3 p-4 rounded-xl border transition-all duration-300 ${passenger.status === 'waiting'
-									? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60 hover:border-yellow-500/30'
-									: 'bg-slate-900/30 border-slate-800/50 opacity-75 hover:opacity-100'
+								? 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60 hover:border-yellow-500/30'
+								: 'bg-slate-900/30 border-slate-800/50 opacity-75 hover:opacity-100'
 								}`}
 						>
 							<div className="flex items-start gap-4">
